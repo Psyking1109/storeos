@@ -1,0 +1,13 @@
+{
+  "name": "storeos",
+  "version": "3.0.0",
+  "description": "StoreOS - Sri Lanka Edition Store Management",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "install-deps": "cd server && npm install"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
