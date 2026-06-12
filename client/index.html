@@ -139,6 +139,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
 .rpt-tbl .col-num{width:22.5%;text-align:right;font-family:var(--fm);font-size:13px}
 .rpt-tbl tbody tr:hover td{background:rgba(255,255,255,.02)}
 ::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--brd2);border-radius:3px}
+.hover-row{cursor:pointer}.hover-row:hover{background:rgba(255,255,255,.04)!important}
 
 @media print{
   body{background:#fff!important;color:#000!important}
@@ -451,10 +452,16 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       <thead><tr><th>Name</th><th>Phone</th><th>TIN</th><th>Balance</th><th></th></tr></thead>
       <tbody>
         <tr v-for="c in custs" :key="c._id">
-          <td style="font-weight:600;color:var(--txt)">{{c.name}}</td><td class="mn">{{c.phone||'—'}}</td>
+          <td>
+            <span style="font-weight:600;color:var(--acc);cursor:pointer;text-decoration:underline;text-underline-offset:3px" @click="viewCustDetail(c)">{{c.name}}</span>
+          </td>
+          <td class="mn">{{c.phone||'—'}}</td>
           <td class="mn cm" style="font-size:11px">{{c.tin||'—'}}</td>
           <td class="mn" :class="c.balance>0?'cr':'cg'">{{f(c.balance)}}</td>
-          <td><button class="btn btn-o btn-sm" @click="openCust(c)">Edit</button></td>
+          <td><div class="fx g6">
+            <button class="btn btn-b btn-sm" @click="viewCustDetail(c)">View</button>
+            <button class="btn btn-o btn-sm" @click="openCust(c)">Edit</button>
+          </div></td>
         </tr>
         <tr v-if="!custs.length"><td colspan="5" class="emp"><div class="eic">👥</div><div>No customers</div></td></tr>
       </tbody>
@@ -828,7 +835,11 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
 <!-- DAILY REPORT -->
 <template v-if="pg==='drpt'">
   <div class="topbar"><h2>Daily Cash Balance Report</h2>
-    <div class="tba"><input v-model="rptDate" type="date" class="fc" @change="loadRpt" style="width:145px"/><button class="btn btn-p btn-sm" @click="openQuickJournal()" title="Post a manual debit or credit entry">+ Journal Entry</button></div>
+    <div class="tba">
+      <input v-model="rptDate" type="date" class="fc" @change="loadRpt" style="width:145px"/>
+      <button class="btn btn-p btn-sm" @click="openQuickJournal()" title="Post a manual debit or credit entry">+ Journal Entry</button>
+      <button class="btn btn-b btn-sm" @click="printDailyCashReport" :disabled="!rpt.date" title="Print Daily Report">🖨 Print</button>
+    </div>
   </div>
   <div class="content">
     <div v-if="!rpt.date" class="emp"><div class="eic">📊</div><div>Select a date to view the report</div></div>
@@ -1295,7 +1306,10 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
 <!-- TRIAL BALANCE PAGE -->
 <template v-if="pg==='tbal'">
   <div class="topbar"><h2>⚖️ Trial Balance</h2>
-    <div class="tba"><button class="btn btn-o btn-sm" @click="loadTrialBalance">⟳ Refresh</button></div>
+    <div class="tba">
+      <button class="btn btn-o btn-sm" @click="loadTrialBalance">⟳ Refresh</button>
+      <button class="btn btn-b btn-sm" @click="printTrialBalance" title="Print Trial Balance">🖨 Print</button>
+    </div>
   </div>
   <div class="content">
     <div class="al al-i" style="margin-bottom:12px;font-size:13px">
@@ -1324,7 +1338,9 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
         </tbody>
         <tfoot v-if="(trialBalance.accounts||[]).length">
           <tr style="background:var(--sur2);font-weight:700">
-            <td colspan="4" style="text-align:right;color:var(--txt)">TOTALS</td>
+            <td colspan="2" style="text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--tx2)">TOTALS</td>
+            <td style="text-align:right;font-family:var(--fm);color:var(--tx2);font-size:13px">{{f((trialBalance.accounts||[]).reduce((s,r)=>s+r.debit,0))}}</td>
+            <td style="text-align:right;font-family:var(--fm);color:var(--tx2);font-size:13px">{{f((trialBalance.accounts||[]).reduce((s,r)=>s+r.credit,0))}}</td>
             <td style="text-align:right;font-family:var(--fm);color:var(--grn);font-size:14px">{{f(trialBalance.totalDr||0)}}</td>
             <td style="text-align:right;font-family:var(--fm);color:var(--red);font-size:14px">{{f(trialBalance.totalCr||0)}}</td>
           </tr>
@@ -2630,6 +2646,82 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
   </div>
 </div>
 
+
+<!-- CUSTOMER DETAIL MODAL -->
+<div class="mo" v-if="mCustDetail" @click.self="mCustDetail=false">
+  <div class="md md-lg"><div class="mh">
+    <div>
+      <h3 style="font-family:var(--fh)">{{custDetail.customer?.name}}</h3>
+      <div style="display:flex;gap:12px;margin-top:3px;font-size:12px;color:var(--tx2)">
+        <span v-if="custDetail.customer?.phone">📞 {{custDetail.customer.phone}}</span>
+        <span v-if="custDetail.customer?.email">✉ {{custDetail.customer.email}}</span>
+        <span v-if="custDetail.customer?.tin" class="mn cm">TIN: {{custDetail.customer.tin}}</span>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div style="text-align:right">
+        <div style="font-size:10px;font-family:var(--fm);text-transform:uppercase;letter-spacing:1px;color:var(--tx3)">Outstanding Balance</div>
+        <div style="font-family:var(--fm);font-size:18px;font-weight:700" :class="(custDetail.customer?.balance||0)>0?'cr':'cg'">{{f(custDetail.customer?.balance||0)}}</div>
+      </div>
+      <button class="xbtn" @click="mCustDetail=false">×</button>
+    </div>
+  </div>
+  <div class="mb">
+    <div v-if="custDetail.customer?.address" style="background:var(--sur2);border:1px solid var(--brd);border-radius:var(--r);padding:8px 12px;margin-bottom:14px;font-size:13px;color:var(--tx2)">
+      📍 {{custDetail.customer.address}}
+    </div>
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--tx3);margin-bottom:10px;font-family:var(--fm)">
+      Purchase History ({{(custDetail.invoices||[]).length}} invoices)
+    </div>
+    <div v-if="!(custDetail.invoices||[]).length" class="emp"><div class="eic">📋</div><div>No invoices for this customer yet.</div></div>
+    <div v-else class="tw"><table>
+      <thead><tr>
+        <th>Invoice</th>
+        <th>Date</th>
+        <th style="text-align:right">Subtotal</th>
+        <th style="text-align:right">Tax</th>
+        <th style="text-align:right">Total</th>
+        <th style="text-align:right">Paid</th>
+        <th style="text-align:right">Balance</th>
+        <th>Status</th>
+      </tr></thead>
+      <tbody>
+        <tr v-for="inv in (custDetail.invoices||[])" :key="inv._id"
+            style="cursor:pointer"
+            @click="invDet={...inv};mInvDetail=true"
+            class="hover-row">
+          <td>
+            <span class="mn fw" :class="inv.isReturn?'cr':'ca'" style="text-decoration:underline;text-underline-offset:3px">{{inv.invoiceNo}}</span>
+            <span v-if="inv.isReturn" style="font-size:9px;background:rgba(224,82,82,.15);color:var(--red);padding:1px 5px;border-radius:3px;margin-left:4px;font-family:var(--fm)">RETURN</span>
+            <div v-if="inv.invoiceTypeName" class="mn cm" style="font-size:10px">{{inv.invoiceTypeName}}</div>
+          </td>
+          <td class="mn cm" style="font-size:12px">{{fd(inv.date)}}</td>
+          <td style="text-align:right;font-family:var(--fm);font-size:12px">{{f(inv.subtotal||0)}}</td>
+          <td style="text-align:right;font-family:var(--fm);font-size:12px;color:var(--org)">{{f(inv.taxAmount||0)}}</td>
+          <td style="text-align:right;font-family:var(--fm);font-weight:700">{{f(inv.total||0)}}</td>
+          <td style="text-align:right;font-family:var(--fm);color:var(--grn)">{{f(inv.paid||0)}}</td>
+          <td style="text-align:right;font-family:var(--fm)" :class="(inv.balance||0)>0?'cr':''">{{f(inv.balance||0)}}</td>
+          <td><span class="badge" :class="bs(inv.status)">{{inv.status}}</span></td>
+        </tr>
+      </tbody>
+      <tfoot v-if="(custDetail.invoices||[]).length>1">
+        <tr style="background:rgba(255,255,255,.04)">
+          <td colspan="4" style="padding:9px 11px;font-family:var(--fm);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--tx2);font-weight:700">Totals ({{(custDetail.invoices||[]).length}} invoices)</td>
+          <td style="padding:9px 11px;text-align:right;font-family:var(--fm);font-weight:700;color:var(--acc)">{{f((custDetail.invoices||[]).reduce((s,i)=>s+(i.total||0),0))}}</td>
+          <td style="padding:9px 11px;text-align:right;font-family:var(--fm);font-weight:700;color:var(--grn)">{{f((custDetail.invoices||[]).reduce((s,i)=>s+(i.paid||0),0))}}</td>
+          <td style="padding:9px 11px;text-align:right;font-family:var(--fm);font-weight:700;color:var(--red)">{{f((custDetail.invoices||[]).reduce((s,i)=>s+(i.balance||0),0))}}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table></div>
+    <div style="margin-top:10px;font-size:11px;color:var(--tx3)">Click any invoice row to view full details.</div>
+  </div>
+  <div class="mf">
+    <button class="btn btn-o" @click="openCust(custDetail.customer);mCustDetail=false">✏ Edit Customer</button>
+    <button class="btn btn-o" @click="mCustDetail=false">Close</button>
+  </div>
+  </div>
+</div>
 
 <!-- INVOICE DETAIL MODAL -->
 <div class="mo" v-if="mInvDetail" @click.self="mInvDetail=false">
