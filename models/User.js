@@ -15,6 +15,7 @@ const userSchema = new mongoose.Schema({
   active:   { type: Boolean, default: true },
   lastLogin:{ type: Date },
   permissions: {
+    _id: false,
     dashboard:          { type: Boolean },
     invoices:           { type: Boolean },
     customers:          { type: Boolean },
