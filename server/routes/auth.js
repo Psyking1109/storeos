@@ -2,7 +2,7 @@ const router     = require('express').Router();
 const mongoose = require('mongoose');
 const jwt        = require('jsonwebtoken');
 const User       = require('../models/User');
-const { requireAuth, requireRole, JWT_SECRET } = require('../middleware/auth');
+const { requireAuth, requireRole, requirePermission, JWT_SECRET, ROLE_PRESETS } = require('../middleware/auth');
 
 // Seed default admin on first run
 async function seedAdmin() {
@@ -49,37 +49,45 @@ router.post('/change-password', requireAuth, async (req, res) => {
 // ── User management (admin only) ─────────────────────────────────────────────
 
 // GET all users
-router.get('/users', requireAuth, requireRole('admin'), async (req, res) => {
+router.get('/users', requireAuth, requirePermission('userManagement'), async (req, res) => {
   try { res.json(await User.find().sort({ createdAt: 1 })); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // POST create user
-router.post('/users', requireAuth, requireRole('admin'), async (req, res) => {
+router.post('/users', requireAuth, requirePermission('userManagement'), async (req, res) => {
   try {
     if (!req.body.password || req.body.password.length < 6)
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    // Set permissions from role preset if not provided
+    if (!req.body.permissions) {
+      req.body.permissions = ROLE_PRESETS[req.body.role] || ROLE_PRESETS.cashier;
+    }
     const user = new User(req.body);
     await user.save();
     res.status(201).json(user.toJSON());
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
-// PUT update user (admin can update role/active; users can update own name)
+// PUT update user (admin/userManagement can update role/active/permissions; users can update own name)
 router.put('/users/:id', requireAuth, async (req, res) => {
   try {
     const isOwnAccount = req.user._id.toString() === req.params.id;
     const isAdmin = req.user.role === 'admin';
-    if (!isAdmin && !isOwnAccount) return res.status(403).json({ error: 'Access denied' });
-    // Non-admins cannot change roles
-    if (!isAdmin) { delete req.body.role; delete req.body.active; }
-    // Handle password change via this endpoint
+    const canManage = isAdmin || req.user.permissions?.userManagement === true;
+    if (!canManage && !isOwnAccount) return res.status(403).json({ error: 'Access denied' });
+    // Non-managers cannot change roles/active/permissions
+    if (!canManage) { delete req.body.role; delete req.body.active; delete req.body.permissions; }
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: 'Not found' });
     if (req.body.name)     user.name     = req.body.name;
-    if (req.body.username && isAdmin) user.username = req.body.username;
-    if (req.body.role  && isAdmin)    user.role     = req.body.role;
-    if (req.body.active !== undefined && isAdmin) user.active = req.body.active;
+    if (req.body.username && canManage) user.username = req.body.username;
+    if (req.body.role  && canManage)    user.role     = req.body.role;
+    if (req.body.active !== undefined && canManage) user.active = req.body.active;
+    if (req.body.permissions !== undefined && canManage) {
+      user.permissions = req.body.permissions;
+      user.markModified('permissions');
+    }
     if (req.body.newPassword) {
       if (req.body.newPassword.length < 6) return res.status(400).json({ error: 'Password min 6 chars' });
       user.password = req.body.newPassword;
@@ -89,8 +97,8 @@ router.put('/users/:id', requireAuth, async (req, res) => {
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
-// DELETE user (admin only, cannot delete self)
-router.delete('/users/:id', requireAuth, requireRole('admin'), async (req, res) => {
+// DELETE user (userManagement permission required, cannot delete self)
+router.delete('/users/:id', requireAuth, requirePermission('userManagement'), async (req, res) => {
   try {
     if (req.user._id.toString() === req.params.id)
       return res.status(400).json({ error: 'Cannot delete your own account' });

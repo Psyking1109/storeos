@@ -9,6 +9,25 @@ const me=ref(JSON.parse(localStorage.getItem('sos_me')||'null'));
 const lf=ref({u:'',p:''});const lerr=ref('');const lding=ref(false);const spwd=ref(false);
 const pw=ref({cur:'',nw:'',cf:''});const pwErr=ref('');const pwOk=ref('');
 function can(r){const o=['viewer','cashier','manager','admin'];return o.indexOf(me.value?.role)>=o.indexOf(r);}
+const ROLE_PRESETS={
+  admin:{dashboard:true,invoices:true,customers:true,purchases:true,suppliers:true,inventory:true,cashAccounts:true,expenses:true,banking:true,cheques:true,ledger:true,chartOfAccounts:true,trialBalance:true,dailyReport:true,taxReport:true,monthlyTax:true,invoiceSettings:true,locations:true,taxRates:true,userManagement:true,canDeleteRecords:true,canEditPastEntries:true},
+  manager:{dashboard:true,invoices:true,customers:true,purchases:true,suppliers:true,inventory:true,cashAccounts:true,expenses:true,banking:true,cheques:true,ledger:true,chartOfAccounts:true,trialBalance:true,dailyReport:true,taxReport:true,monthlyTax:true,invoiceSettings:true,locations:true,taxRates:true,userManagement:false,canDeleteRecords:false,canEditPastEntries:false},
+  cashier:{dashboard:true,invoices:true,customers:true,purchases:false,suppliers:false,inventory:true,cashAccounts:true,expenses:true,banking:false,cheques:false,ledger:false,chartOfAccounts:false,trialBalance:false,dailyReport:false,taxReport:false,monthlyTax:false,invoiceSettings:false,locations:false,taxRates:false,userManagement:false,canDeleteRecords:false,canEditPastEntries:false},
+  viewer:{dashboard:true,invoices:false,customers:false,purchases:false,suppliers:false,inventory:true,cashAccounts:false,expenses:false,banking:false,cheques:false,ledger:false,chartOfAccounts:false,trialBalance:false,dailyReport:false,taxReport:false,monthlyTax:false,invoiceSettings:false,locations:false,taxRates:false,userManagement:false,canDeleteRecords:false,canEditPastEntries:false}
+};
+function hasPermission(key){
+  if(!me.value)return false;
+  if(me.value.role==='admin')return true;
+  const p=me.value.permissions;
+  const configured=p&&Object.values(p).some(v=>v!==undefined&&v!==null);
+  const eff=configured?p:(ROLE_PRESETS[me.value.role]||ROLE_PRESETS.viewer);
+  return eff[key]===true;
+}
+function applyRolePreset(role){
+  const preset=ROLE_PRESETS[role];
+  if(!preset)return;
+  eUser.value.permissions={...preset};
+}
 async function login(){
   lerr.value='';if(!lf.value.u||!lf.value.p){lerr.value='Enter username and password';return;}
   lding.value=true;
@@ -906,8 +925,32 @@ async function saveInvType(){if(!eInvType.value.name||!eInvType.value.prefix){mE
 async function delInvType(id){if(!confirm('Delete?'))return;try{await api('DELETE','/invoice-types/'+id);loadInvTypes();}catch(e){alert(e.message);}}
 function openLoc(l){eLoc.value=l?{...l}:{name:'',code:'',description:''};mLoc.value=true;}
 async function saveLoc(){if(!eLoc.value.name){alert('Name required');return;}saving.value=true;try{if(eLoc.value._id)await api('PUT','/locations/'+eLoc.value._id,eLoc.value);else await api('POST','/locations',eLoc.value);mLoc.value=false;loadLocs();}catch(e){alert(e.message);}saving.value=false;}
-function openUser(u){eUser.value=u?{...u,newPwd:''}:{name:'',username:'',role:'cashier',newPwd:''};mErr.value='';mUser.value=true;}
-async function saveUser(){if(!eUser.value.name){mErr.value='Name required';return;}if(!eUser.value._id&&!eUser.value.newPwd){mErr.value='Password required for new users';return;}saving.value=true;mErr.value='';try{if(eUser.value._id)await api('PUT','/auth/users/'+eUser.value._id,eUser.value);else await api('POST','/auth/users',{...eUser.value,password:eUser.value.newPwd});mUser.value=false;loadUsers();}catch(e){mErr.value=e.message;}saving.value=false;}
+function openUser(u){
+  if(u&&u._id){
+    const p=u.permissions||{};
+    const configured=Object.values(p).some(v=>v!==undefined&&v!==null);
+    eUser.value={...u,newPwd:'',permissions:configured?{...p}:{...(ROLE_PRESETS[u.role]||ROLE_PRESETS.cashier)}};
+  }else{
+    eUser.value={name:'',username:'',role:'cashier',newPwd:'',permissions:{...ROLE_PRESETS.cashier}};
+  }
+  mErr.value='';mUser.value=true;
+}
+async function saveUser(){
+  if(!eUser.value.name){mErr.value='Name required';return;}
+  if(!eUser.value._id&&!eUser.value.newPwd){mErr.value='Password required for new users';return;}
+  saving.value=true;mErr.value='';
+  try{
+    const payload={...eUser.value};
+    if(eUser.value._id){
+      if(payload.newPwd)payload.newPassword=payload.newPwd;
+      await api('PUT','/auth/users/'+eUser.value._id,payload);
+    }else{
+      await api('POST','/auth/users',{...payload,password:payload.newPwd});
+    }
+    mUser.value=false;loadUsers();
+  }catch(e){mErr.value=e.message;}
+  saving.value=false;
+}
 async function disableUser(id){if(!confirm('Disable this user?'))return;try{await api('PUT','/auth/users/'+id,{active:false});loadUsers();}catch(e){alert(e.message);}}
 
 // ── CASH ACCOUNT LEDGER ────────────────────────────────────────────────────
@@ -1270,7 +1313,7 @@ async function saveReturn(){
 }
 
 onMounted(()=>{if(tok.value){loadDash();loadTxRates();loadCas();loadInvTypes();loadLocs();loadSavedCats();loadCats();}});
-return{tok,me,lf,lerr,lding,spwd,pw,pwErr,pwOk,can,login,logout,changePw,
+return{tok,me,lf,lerr,lding,spwd,pw,pwErr,pwOk,can,hasPermission,ROLE_PRESETS,applyRolePreset,login,logout,changePw,
 pg,saving,mErr,dash,prods,invs,pos,custs,supps,cats,txRates,allTxRates,taxRpt,users,invTypes,locs,
 cas,xfers,exps,exSumm,expCats,baccs,btxs,btab,btf,chqs,chqf,
 ledDays,trial,trialGrp,ledV,ledFr,ledTo,ledAccList,ledAcc,accLedRows,

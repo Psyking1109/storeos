@@ -13,7 +13,31 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true },
   role:     { type: String, enum: ['admin','manager','cashier','viewer'], default: 'cashier' },
   active:   { type: Boolean, default: true },
-  lastLogin:{ type: Date }
+  lastLogin:{ type: Date },
+  permissions: {
+    dashboard:          { type: Boolean },
+    invoices:           { type: Boolean },
+    customers:          { type: Boolean },
+    purchases:          { type: Boolean },
+    suppliers:          { type: Boolean },
+    inventory:          { type: Boolean },
+    cashAccounts:       { type: Boolean },
+    expenses:           { type: Boolean },
+    banking:            { type: Boolean },
+    cheques:            { type: Boolean },
+    ledger:             { type: Boolean },
+    chartOfAccounts:    { type: Boolean },
+    trialBalance:       { type: Boolean },
+    dailyReport:        { type: Boolean },
+    taxReport:          { type: Boolean },
+    monthlyTax:         { type: Boolean },
+    invoiceSettings:    { type: Boolean },
+    locations:          { type: Boolean },
+    taxRates:           { type: Boolean },
+    userManagement:     { type: Boolean },
+    canDeleteRecords:   { type: Boolean },
+    canEditPastEntries: { type: Boolean }
+  }
 }, { timestamps: true });
 
 userSchema.pre('save', async function(next) {

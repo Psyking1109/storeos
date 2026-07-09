@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const cors     = require('cors');
 const path     = require('path');
 const fs       = require('fs');
-const { requireAuth, requireRole } = require('./middleware/auth');
+const { requireAuth, requireRole, requirePermission } = require('./middleware/auth');
 
 const app = express();
 app.use(cors());
@@ -58,28 +58,26 @@ seedAdmin();
 // API Routes — public
 app.use('/api/auth', require('./routes/auth'));
 
-// API Routes — authenticated
-app.use('/api/categories',    requireAuth, require('./routes/categories'));
-app.use('/api/products',      requireAuth, require('./routes/products'));
-app.use('/api/customers',     requireAuth, require('./routes/customers'));
-app.use('/api/tax',           requireAuth, require('./routes/tax'));
-app.use('/api/locations',     requireAuth, require('./routes/locations'));
-app.use('/api/invoice-types', requireAuth, require('./routes/invoicetypes'));
-app.use('/api/cash-accounts', requireAuth, require('./routes/cashaccounts'));
-app.use('/api/expenses',      requireAuth, require('./routes/expenses'));
-app.use('/api/cash',          requireAuth, require('./routes/cash'));
-app.use('/api/ledger-accounts',requireAuth, require('./routes/ledgeraccounts'));
-app.use('/api/dashboard',     requireAuth, require('./routes/dashboard'));
+// API Routes — authenticated (products/categories/tax/customers shared internally, no extra gate)
+app.use('/api/categories',     requireAuth, require('./routes/categories'));
+app.use('/api/products',       requireAuth, require('./routes/products'));
+app.use('/api/customers',      requireAuth, require('./routes/customers'));
+app.use('/api/tax',            requireAuth, require('./routes/tax'));
+app.use('/api/locations',      requireAuth, require('./routes/locations'));
+app.use('/api/invoice-types',  requireAuth, require('./routes/invoicetypes'));
+app.use('/api/cash-accounts',  requireAuth, require('./routes/cashaccounts'));
+app.use('/api/cash',           requireAuth, require('./routes/cash'));
+app.use('/api/dashboard',      requireAuth, require('./routes/dashboard'));
 
-// Cashier+
-app.use('/api/invoices', requireAuth, requireRole('admin','manager','cashier'), require('./routes/invoices'));
-
-// Manager+
-app.use('/api/purchases', requireAuth, requireRole('admin','manager'), require('./routes/purchases'));
-app.use('/api/suppliers',  requireAuth, requireRole('admin','manager'), require('./routes/suppliers'));
-app.use('/api/banking',    requireAuth, requireRole('admin','manager'), require('./routes/banking'));
-app.use('/api/cheques',    requireAuth, requireRole('admin','manager'), require('./routes/cheques'));
-app.use('/api/ledger',     requireAuth, requireRole('admin','manager'), require('./routes/ledger'));
+// Permission-gated routes
+app.use('/api/invoices',        requireAuth, requirePermission('invoices'),       require('./routes/invoices'));
+app.use('/api/expenses',        requireAuth, requirePermission('expenses'),       require('./routes/expenses'));
+app.use('/api/purchases',       requireAuth, requirePermission('purchases'),      require('./routes/purchases'));
+app.use('/api/suppliers',       requireAuth, requirePermission('suppliers'),      require('./routes/suppliers'));
+app.use('/api/banking',         requireAuth, requirePermission('banking'),        require('./routes/banking'));
+app.use('/api/cheques',         requireAuth, requirePermission('cheques'),        require('./routes/cheques'));
+app.use('/api/ledger',          requireAuth, requirePermission('ledger'),         require('./routes/ledger'));
+app.use('/api/ledger-accounts', requireAuth, requirePermission('chartOfAccounts'), require('./routes/ledgeraccounts'));
 
 // SPA fallback — serve index.html for all non-API routes
 app.get('*', (req, res) => {

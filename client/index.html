@@ -139,6 +139,9 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
 .rpt-tbl .col-num{width:22.5%;text-align:right;font-family:var(--fm);font-size:13px}
 .rpt-tbl tbody tr:hover td{background:rgba(255,255,255,.02)}
 ::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--brd2);border-radius:3px}
+.pchk{display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;padding:3px 6px;border-radius:4px;color:var(--tx2);user-select:none}
+.pchk:hover{background:var(--sur2);color:var(--txt)}.pchk input[type=checkbox]{cursor:pointer;width:13px;height:13px;accent-color:var(--acc);flex-shrink:0}
+.pgrp{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--tx3);padding:8px 2px 3px;border-top:1px solid var(--brd);margin-top:4px}
 .hover-row{cursor:pointer}.hover-row:hover{background:rgba(255,255,255,.04)!important}
 
 @media print{
@@ -189,43 +192,37 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
     </button>
   </div>
   <div class="ns"><div class="nl">Main</div>
-    <div class="ni" :class="{active:pg==='dash'}" @click="pg='dash'"><span class="ic">⬡</span>Dashboard</div>
+    <div class="ni" v-if="hasPermission('dashboard')" :class="{active:pg==='dash'}" @click="pg='dash'"><span class="ic">⬡</span>Dashboard</div>
   </div>
-  <div class="ns"><div class="nl">Sales</div>
-    <div class="ni" :class="{active:pg==='inv'}"  @click="pg='inv'"><span class="ic">📋</span>Invoices</div>
-    <div class="ni" :class="{active:pg==='cust'}" @click="pg='cust'"><span class="ic">👥</span>Customers</div>
+  <div class="ns" v-if="hasPermission('invoices')||hasPermission('customers')"><div class="nl">Sales</div>
+    <div class="ni" v-if="hasPermission('invoices')"  :class="{active:pg==='inv'}"  @click="pg='inv'"><span class="ic">📋</span>Invoices</div>
+    <div class="ni" v-if="hasPermission('customers')" :class="{active:pg==='cust'}" @click="pg='cust'"><span class="ic">👥</span>Customers</div>
   </div>
-  <template v-if="can('manager')">
-  <div class="ns"><div class="nl">Purchasing</div>
-    <div class="ni" :class="{active:pg==='po'}"   @click="pg='po'"><span class="ic">🛒</span>Purchases</div>
-    <div class="ni" :class="{active:pg==='sup'}"  @click="pg='sup'"><span class="ic">🏭</span>Suppliers</div>
+  <div class="ns" v-if="hasPermission('purchases')||hasPermission('suppliers')"><div class="nl">Purchasing</div>
+    <div class="ni" v-if="hasPermission('purchases')" :class="{active:pg==='po'}"  @click="pg='po'"><span class="ic">🛒</span>Purchases</div>
+    <div class="ni" v-if="hasPermission('suppliers')" :class="{active:pg==='sup'}" @click="pg='sup'"><span class="ic">🏭</span>Suppliers</div>
   </div>
-  </template>
-  <div class="ns"><div class="nl">Stock</div>
-    <div class="ni" :class="{active:pg==='stk'}"  @click="pg='stk'"><span class="ic">📦</span>Inventory<span v-if="lowStock>0" class="nbadge">{{lowStock}}</span></div>
+  <div class="ns" v-if="hasPermission('inventory')"><div class="nl">Stock</div>
+    <div class="ni" :class="{active:pg==='stk'}" @click="pg='stk'"><span class="ic">📦</span>Inventory<span v-if="lowStock>0" class="nbadge">{{lowStock}}</span></div>
   </div>
-  <div class="ns"><div class="nl">Accounts</div>
-    <div class="ni" :class="{active:pg==='cash'}" @click="pg='cash'"><span class="ic">💵</span>Cash Accounts</div>
-    <div class="ni" :class="{active:pg==='exp'}"  @click="pg='exp'"><span class="ic">💸</span>Expenses</div>
-    <template v-if="can('manager')">
-    <div class="ni" :class="{active:pg==='bank'}" @click="pg='bank'"><span class="ic">🏦</span>Banking</div>
-    <div class="ni" :class="{active:pg==='chq'}"  @click="pg='chq'"><span class="ic">🧾</span>Cheques<span v-if="pendChq>0" class="nbadge">{{pendChq}}</span></div>
-    <div class="ni" :class="{active:pg==='led'}"  @click="pg='led'"><span class="ic">📒</span>Ledger</div>
-    <div class="ni" :class="{active:pg==='laccs'}" @click="pg='laccs';loadLedgerAccs()"><span class="ic">📋</span>Chart of Accounts</div>
-    <div class="ni" :class="{active:pg==='tbal'}"  @click="pg='tbal';loadTrialBalance()"><span class="ic">⚖️</span>Trial Balance</div>
-    <div class="ni" :class="{active:pg==='drpt'}" @click="pg='drpt'"><span class="ic">📊</span>Daily Report</div>
-    <div class="ni" :class="{active:pg==='taxr'}" @click="pg='taxr'"><span class="ic">🧮</span>Tax Report</div>
-    <div class="ni" :class="{active:pg==='taxm'}" @click="pg='taxm'"><span class="ic">📅</span>Monthly Tax</div>
-    </template>
+  <div class="ns" v-if="hasPermission('cashAccounts')||hasPermission('expenses')||hasPermission('banking')||hasPermission('cheques')||hasPermission('ledger')||hasPermission('chartOfAccounts')||hasPermission('trialBalance')||hasPermission('dailyReport')||hasPermission('taxReport')||hasPermission('monthlyTax')"><div class="nl">Accounts</div>
+    <div class="ni" v-if="hasPermission('cashAccounts')"    :class="{active:pg==='cash'}"  @click="pg='cash'"><span class="ic">💵</span>Cash Accounts</div>
+    <div class="ni" v-if="hasPermission('expenses')"        :class="{active:pg==='exp'}"   @click="pg='exp'"><span class="ic">💸</span>Expenses</div>
+    <div class="ni" v-if="hasPermission('banking')"         :class="{active:pg==='bank'}"  @click="pg='bank'"><span class="ic">🏦</span>Banking</div>
+    <div class="ni" v-if="hasPermission('cheques')"         :class="{active:pg==='chq'}"   @click="pg='chq'"><span class="ic">🧾</span>Cheques<span v-if="pendChq>0" class="nbadge">{{pendChq}}</span></div>
+    <div class="ni" v-if="hasPermission('ledger')"          :class="{active:pg==='led'}"   @click="pg='led'"><span class="ic">📒</span>Ledger</div>
+    <div class="ni" v-if="hasPermission('chartOfAccounts')" :class="{active:pg==='laccs'}" @click="pg='laccs';loadLedgerAccs()"><span class="ic">📋</span>Chart of Accounts</div>
+    <div class="ni" v-if="hasPermission('trialBalance')"    :class="{active:pg==='tbal'}"  @click="pg='tbal';loadTrialBalance()"><span class="ic">⚖️</span>Trial Balance</div>
+    <div class="ni" v-if="hasPermission('dailyReport')"     :class="{active:pg==='drpt'}"  @click="pg='drpt'"><span class="ic">📊</span>Daily Report</div>
+    <div class="ni" v-if="hasPermission('taxReport')"       :class="{active:pg==='taxr'}"  @click="pg='taxr'"><span class="ic">🧮</span>Tax Report</div>
+    <div class="ni" v-if="hasPermission('monthlyTax')"      :class="{active:pg==='taxm'}"  @click="pg='taxm'"><span class="ic">📅</span>Monthly Tax</div>
   </div>
-  <div class="ns"><div class="nl">Setup</div>
-    <div class="ni" :class="{active:pg==='invt'}" @click="pg='invt'"><span class="ic">🔢</span>Invoice Settings</div>
-    <div class="ni" :class="{active:pg==='loc'}"  @click="pg='loc'"><span class="ic">🏪</span>Locations</div>
-    <template v-if="can('manager')">
-    <div class="ni" :class="{active:pg==='txrt'}" @click="pg='txrt'"><span class="ic">🏷</span>Tax Rates</div>
-    <div class="ni" v-if="can('admin')" :class="{active:pg==='usr'}" @click="pg='usr'"><span class="ic">👤</span>Users</div>
-    <div class="ni" v-if="can('admin')" :class="{active:pg==='cosettings'}" @click="pg='cosettings'"><span class="ic">🏢</span>Company</div>
-    </template>
+  <div class="ns" v-if="hasPermission('invoiceSettings')||hasPermission('locations')||hasPermission('taxRates')||hasPermission('userManagement')"><div class="nl">Setup</div>
+    <div class="ni" v-if="hasPermission('invoiceSettings')" :class="{active:pg==='invt'}"       @click="pg='invt'"><span class="ic">🔢</span>Invoice Settings</div>
+    <div class="ni" v-if="hasPermission('locations')"       :class="{active:pg==='loc'}"        @click="pg='loc'"><span class="ic">🏪</span>Locations</div>
+    <div class="ni" v-if="hasPermission('taxRates')"        :class="{active:pg==='txrt'}"       @click="pg='txrt'"><span class="ic">🏷</span>Tax Rates</div>
+    <div class="ni" v-if="hasPermission('userManagement')"  :class="{active:pg==='usr'}"        @click="pg='usr'"><span class="ic">👤</span>Users</div>
+    <div class="ni" v-if="hasPermission('userManagement')"  :class="{active:pg==='cosettings'}" @click="pg='cosettings'"><span class="ic">🏢</span>Company</div>
   </div>
   <div class="sb-foot">
     <div class="upill" @click="pg='prof'">
@@ -246,7 +243,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       <div class="sc y"><div class="sl">Today Sales</div><div class="sv">{{f(dash.today?.sales?.total||0)}}</div><div class="ss">{{dash.today?.sales?.count||0}} invoices</div></div>
       <div class="sc g"><div class="sl">Total Cash on Hand</div><div class="sv" :class="(dash.cashBalance||0)>=0?'cg':'cr'">{{f(dash.cashBalance||0)}}</div><div class="ss" v-if="dash.cashAccounts?.length">{{dash.cashAccounts.map(a=>a.name+': '+f(a.currentBalance)).join(' · ')}}</div></div>
       <div class="sc b"><div class="sl">Month Sales</div><div class="sv">{{f(dash.month?.sales?.total||0)}}</div><div class="ss">{{dash.month?.sales?.count||0}} invoices</div></div>
-      <template v-if="can('manager')">
+      <template v-if="hasPermission('ledger')">
       <div class="sc r"><div class="sl">Receivables</div><div class="sv sm cr">{{f(dash.outstanding?.total||0)}}</div><div class="ss">{{dash.outstanding?.count||0}} unpaid</div></div>
       <div class="sc p"><div class="sl">Payables</div><div class="sv sm cp">{{f(dash.outstandingPurchases?.total||0)}}</div></div>
       <div class="sc o"><div class="sl">Est. VAT Payable</div><div class="sv sm co">{{f(dash.vatPayable||0)}}</div><div class="ss">This month</div></div>
@@ -273,7 +270,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <div v-if="!dash.salesTrend?.length" class="emp" style="padding:14px">No data</div>
         </div>
       </div>
-      <template v-if="can('manager')">
+      <template v-if="hasPermission('banking')">
       <div class="card"><div class="ch"><h3>Bank Balances</h3><button class="btn btn-o btn-sm" style="margin-left:auto" @click="pg='bank'">Manage</button></div>
         <div class="tw"><table><thead><tr><th>Account</th><th style="text-align:right">Balance</th></tr></thead>
           <tbody>
@@ -283,6 +280,8 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           </tbody>
         </table></div>
       </div>
+      </template>
+      <template v-if="hasPermission('cheques')">
       <div class="card"><div class="ch"><h3>Cheques Due Soon</h3><button class="btn btn-o btn-sm" style="margin-left:auto" @click="pg='chq'">View All</button></div>
         <div class="tw"><table><thead><tr><th>Cheque#</th><th>Party</th><th>Due</th><th>Amount</th></tr></thead>
           <tbody>
@@ -1210,11 +1209,12 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
 <template v-if="pg==='usr'">
   <div class="topbar"><h2>User Management</h2><div class="tba"><button class="btn btn-p" @click="openUser()">+ New User</button></div></div>
   <div class="content">
-    <div class="al al-w" style="margin-bottom:14px">
-      <span class="rbadge r-admin" style="margin:0 4px">Admin</span> Full access + users &nbsp;·&nbsp;
-      <span class="rbadge r-manager" style="margin:0 4px">Manager</span> Sales + Purchases + Accounts &nbsp;·&nbsp;
-      <span class="rbadge r-cashier" style="margin:0 4px">Cashier</span> Invoices + Cash + Inventory &nbsp;·&nbsp;
-      <span class="rbadge r-viewer" style="margin:0 4px">Viewer</span> Read-only
+    <div class="al al-i" style="margin-bottom:14px">
+      Select a <strong>Role</strong> to apply a preset, then fine-tune individual permissions with the checkboxes.
+      <span class="rbadge r-admin" style="margin:0 4px">Admin</span> always has full access regardless of toggles &nbsp;·&nbsp;
+      <span class="rbadge r-manager" style="margin:0 4px">Manager</span>
+      <span class="rbadge r-cashier" style="margin:0 4px">Cashier</span>
+      <span class="rbadge r-viewer" style="margin:0 4px">Viewer</span> start from a preset and are fully customisable
     </div>
     <div class="card"><div class="tw"><table>
       <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Last Login</th><th>Status</th><th>Actions</th></tr></thead>
@@ -1904,7 +1904,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
 
 <!-- USER MODAL -->
 <div class="mo" v-if="mUser" @click.self="mUser=false">
-  <div class="md md-sm"><div class="mh"><h3>{{eUser._id?'Edit User':'New User'}}</h3><button class="xbtn" @click="mUser=false">×</button></div>
+  <div class="md" style="max-width:680px"><div class="mh"><h3>{{eUser._id?'Edit User':'New User'}}</h3><button class="xbtn" @click="mUser=false">×</button></div>
     <div class="mb">
       <div v-if="mErr" class="al al-d">{{mErr}}</div>
       <div class="fg">
@@ -1912,19 +1912,72 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <div class="fl"><label>Full Name *</label><input v-model="eUser.name" class="fc"/></div>
           <div class="fl"><label>Username *</label><input v-model="eUser.username" class="fc" :disabled="!!eUser._id"/></div>
         </div>
-        <div class="fl"><label>Role *</label>
-          <select v-model="eUser.role" class="fc">
-            <option value="admin">Admin — Full access</option>
-            <option value="manager">Manager — Sales + Purchases + Accounts</option>
-            <option value="cashier">Cashier — Invoices + Cash + Inventory</option>
-            <option value="viewer">Viewer — Read-only</option>
-          </select>
+        <div class="fr">
+          <div class="fl"><label>Role *</label>
+            <select v-model="eUser.role" class="fc" @change="applyRolePreset(eUser.role)">
+              <option value="admin">Admin — Full access</option>
+              <option value="manager">Manager — preset: most access</option>
+              <option value="cashier">Cashier — preset: invoices + cash</option>
+              <option value="viewer">Viewer — preset: read-only</option>
+            </select>
+          </div>
+          <div class="fl"><label>{{eUser._id?'New Password (blank = keep current)':'Password *'}}</label><input v-model="eUser.newPwd" type="password" class="fc" :placeholder="eUser._id?'Leave blank to keep':'Min 6 characters'"/></div>
         </div>
-        <div class="fl"><label>{{eUser._id?'New Password (blank = keep current)':'Password *'}}</label><input v-model="eUser.newPwd" type="password" class="fc" :placeholder="eUser._id?'Leave blank to keep':'Min 6 characters'"/></div>
         <div class="fl" v-if="eUser._id"><label>Status</label><select v-model="eUser.active" class="fc"><option :value="true">Active</option><option :value="false">Inactive</option></select></div>
+
+        <!-- Permission Checkboxes — hidden for admin (admin always has everything) -->
+        <div v-if="eUser.role!=='admin'&&eUser.permissions" style="background:var(--sur2);border:1px solid var(--brd2);border-radius:var(--r);padding:10px 12px">
+          <div style="font-size:11px;font-weight:700;color:var(--tx2);margin-bottom:6px">Permissions — customise after selecting a role preset above</div>
+
+          <div class="pgrp" style="border-top:none;margin-top:0;padding-top:2px">Sales</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px">
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.invoices"> Invoices</label>
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.customers"> Customers</label>
+          </div>
+
+          <div class="pgrp">Purchasing</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px">
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.purchases"> Purchases</label>
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.suppliers"> Suppliers</label>
+          </div>
+
+          <div class="pgrp">Stock</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px">
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.inventory"> Inventory</label>
+          </div>
+
+          <div class="pgrp">Accounts</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px">
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.cashAccounts"> Cash Accounts</label>
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.expenses"> Expenses</label>
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.banking"> Banking</label>
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.cheques"> Cheques</label>
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.ledger"> Ledger</label>
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.chartOfAccounts"> Chart of Accounts</label>
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.trialBalance"> Trial Balance</label>
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.dailyReport"> Daily Report</label>
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.taxReport"> Tax Report</label>
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.monthlyTax"> Monthly Tax</label>
+          </div>
+
+          <div class="pgrp">Setup</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px">
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.invoiceSettings"> Invoice Settings</label>
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.locations"> Locations</label>
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.taxRates"> Tax Rates</label>
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.userManagement"> User Management</label>
+          </div>
+
+          <div class="pgrp">Special</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px">
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.canDeleteRecords"> Can Delete Records</label>
+            <label class="pchk"><input type="checkbox" v-model="eUser.permissions.canEditPastEntries"> Can Edit Past Entries</label>
+          </div>
+        </div>
+        <div v-if="eUser.role==='admin'" class="al al-i" style="font-size:12px">Admin always has full access to everything — no individual toggles needed.</div>
       </div>
     </div>
-    <div class="mf"><button class="btn btn-o" @click="mUser=false">Cancel</button><button class="btn btn-p" @click="saveUser" :disabled="saving">Save User</button></div>
+    <div class="mf"><button class="btn btn-o" @click="mUser=false">Cancel</button><button class="btn btn-p" @click="saveUser" :disabled="saving">{{saving?'Saving...':'Save User'}}</button></div>
   </div>
 </div>
 
