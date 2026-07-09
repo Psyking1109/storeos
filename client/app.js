@@ -9,25 +9,6 @@ const me=ref(JSON.parse(localStorage.getItem('sos_me')||'null'));
 const lf=ref({u:'',p:''});const lerr=ref('');const lding=ref(false);const spwd=ref(false);
 const pw=ref({cur:'',nw:'',cf:''});const pwErr=ref('');const pwOk=ref('');
 function can(r){const o=['viewer','cashier','manager','admin'];return o.indexOf(me.value?.role)>=o.indexOf(r);}
-const ROLE_PRESETS={
-  admin:{dashboard:true,invoices:true,customers:true,purchases:true,suppliers:true,inventory:true,cashAccounts:true,expenses:true,banking:true,cheques:true,ledger:true,chartOfAccounts:true,trialBalance:true,dailyReport:true,taxReport:true,monthlyTax:true,invoiceSettings:true,locations:true,taxRates:true,userManagement:true,canDeleteRecords:true,canEditPastEntries:true},
-  manager:{dashboard:true,invoices:true,customers:true,purchases:true,suppliers:true,inventory:true,cashAccounts:true,expenses:true,banking:true,cheques:true,ledger:true,chartOfAccounts:true,trialBalance:true,dailyReport:true,taxReport:true,monthlyTax:true,invoiceSettings:true,locations:true,taxRates:true,userManagement:false,canDeleteRecords:false,canEditPastEntries:false},
-  cashier:{dashboard:true,invoices:true,customers:true,purchases:false,suppliers:false,inventory:true,cashAccounts:true,expenses:true,banking:false,cheques:false,ledger:false,chartOfAccounts:false,trialBalance:false,dailyReport:false,taxReport:false,monthlyTax:false,invoiceSettings:false,locations:false,taxRates:false,userManagement:false,canDeleteRecords:false,canEditPastEntries:false},
-  viewer:{dashboard:true,invoices:false,customers:false,purchases:false,suppliers:false,inventory:true,cashAccounts:false,expenses:false,banking:false,cheques:false,ledger:false,chartOfAccounts:false,trialBalance:false,dailyReport:false,taxReport:false,monthlyTax:false,invoiceSettings:false,locations:false,taxRates:false,userManagement:false,canDeleteRecords:false,canEditPastEntries:false}
-};
-function hasPermission(key){
-  if(!me.value)return false;
-  if(me.value.role==='admin')return true;
-  const p=me.value.permissions;
-  const configured=p&&Object.values(p).some(v=>v!==undefined&&v!==null);
-  const eff=configured?p:(ROLE_PRESETS[me.value.role]||ROLE_PRESETS.viewer);
-  return eff[key]===true;
-}
-function applyRolePreset(role){
-  const preset=ROLE_PRESETS[role];
-  if(!preset)return;
-  eUser.value.permissions={...preset};
-}
 async function login(){
   lerr.value='';if(!lf.value.u||!lf.value.p){lerr.value='Enter username and password';return;}
   lding.value=true;
@@ -575,6 +556,22 @@ const mInv=ref(false);const mPO=ref(false);
 const eProd=ref({});const eStk=ref({});const eCust=ref({});const eSupp=ref({});
 const eCA=ref({});const eXfer=ref({});const eExp=ref({});
 const eTxRate=ref({});const eInvType=ref({});const eLoc=ref({});const eUser=ref({});
+const PERM_GROUPS=[
+  {label:'Sales',keys:[['invoices','Invoices'],['customers','Customers']]},
+  {label:'Purchasing',keys:[['purchases','Purchases'],['suppliers','Suppliers']]},
+  {label:'Stock',keys:[['inventory','Inventory']]},
+  {label:'Accounts',keys:[['cashAccounts','Cash Accounts'],['expenses','Expenses'],['banking','Banking'],['cheques','Cheques'],['ledger','Ledger'],['chartOfAccounts','Chart of Accounts'],['trialBalance','Trial Balance']]},
+  {label:'Reports',keys:[['dailyReport','Daily Report'],['taxReport','Tax Report'],['monthlyTax','Monthly Tax']]},
+  {label:'Setup',keys:[['invoiceSettings','Invoice Settings'],['locations','Locations'],['taxRates','Tax Rates'],['userManagement','User Management']]},
+  {label:'Other',keys:[['canDeleteRecords','Can Delete Records'],['canEditPastEntries','Can Edit Past Entries']]}
+];
+const ROLE_DEFAULTS={
+  admin:{dashboard:true,invoices:true,customers:true,purchases:true,suppliers:true,inventory:true,cashAccounts:true,expenses:true,banking:true,cheques:true,ledger:true,chartOfAccounts:true,trialBalance:true,dailyReport:true,taxReport:true,monthlyTax:true,invoiceSettings:true,locations:true,taxRates:true,userManagement:true,canDeleteRecords:true,canEditPastEntries:true},
+  manager:{dashboard:true,invoices:true,customers:true,purchases:true,suppliers:true,inventory:true,cashAccounts:true,expenses:true,banking:true,cheques:true,ledger:true,chartOfAccounts:true,trialBalance:true,dailyReport:true,taxReport:true,monthlyTax:true,invoiceSettings:false,locations:false,taxRates:false,userManagement:false,canDeleteRecords:false,canEditPastEntries:true},
+  cashier:{dashboard:true,invoices:true,customers:true,purchases:false,suppliers:false,inventory:true,cashAccounts:true,expenses:false,banking:false,cheques:false,ledger:false,chartOfAccounts:false,trialBalance:false,dailyReport:false,taxReport:false,monthlyTax:false,invoiceSettings:false,locations:false,taxRates:false,userManagement:false,canDeleteRecords:false,canEditPastEntries:false},
+  viewer:{dashboard:true,invoices:false,customers:false,purchases:false,suppliers:false,inventory:true,cashAccounts:false,expenses:false,banking:false,cheques:false,ledger:false,chartOfAccounts:false,trialBalance:false,dailyReport:false,taxReport:false,monthlyTax:false,invoiceSettings:false,locations:false,taxRates:false,userManagement:false,canDeleteRecords:false,canEditPastEntries:false}
+};
+function applyRoleDefaults(){eUser.value.permissions={...(ROLE_DEFAULTS[eUser.value.role]||ROLE_DEFAULTS.cashier)};}
 const eBAcc=ref({});const eBTx=ref({});const eChq=ref({});const chqStsData=ref({});
 const payDoc=ref(null);const payAmt=ref(0);const payMode=ref('cash');const payCashAcc=ref('');const payBankAcc=ref('');const payChqNo=ref('');const payDate=ref(today);
 const iSrch=ref('');const iSrchRes=ref([]);const iSrchLoading=ref(false);const poSrch=ref('');const poSrchRes=ref([]);
@@ -926,36 +923,14 @@ async function delInvType(id){if(!confirm('Delete?'))return;try{await api('DELET
 function openLoc(l){eLoc.value=l?{...l}:{name:'',code:'',description:''};mLoc.value=true;}
 async function saveLoc(){if(!eLoc.value.name){alert('Name required');return;}saving.value=true;try{if(eLoc.value._id)await api('PUT','/locations/'+eLoc.value._id,eLoc.value);else await api('POST','/locations',eLoc.value);mLoc.value=false;loadLocs();}catch(e){alert(e.message);}saving.value=false;}
 function openUser(u){
-  const PKEYS=['dashboard','invoices','customers','purchases','suppliers','inventory','cashAccounts','expenses','banking','cheques','ledger','chartOfAccounts','trialBalance','dailyReport','taxReport','monthlyTax','invoiceSettings','locations','taxRates','userManagement','canDeleteRecords','canEditPastEntries'];
-  function buildPerms(role,stored){
-    const preset=ROLE_PRESETS[role]||ROLE_PRESETS.cashier;
-    const p={};
-    for(const k of PKEYS)p[k]=(stored&&(stored[k]===true||stored[k]===false))?stored[k]:preset[k];
-    return p;
-  }
-  if(u&&u._id){
-    eUser.value={...u,newPwd:'',permissions:buildPerms(u.role,u.permissions)};
+  if(u){
+    eUser.value={...u,newPwd:'',permissions:{...(ROLE_DEFAULTS[u.role]||ROLE_DEFAULTS.cashier),...(u.permissions||{})}};
   }else{
-    eUser.value={name:'',username:'',role:'cashier',newPwd:'',permissions:{...ROLE_PRESETS.cashier}};
+    eUser.value={name:'',username:'',role:'cashier',newPwd:'',permissions:{...ROLE_DEFAULTS.cashier}};
   }
   mErr.value='';mUser.value=true;
 }
-async function saveUser(){
-  if(!eUser.value.name){mErr.value='Name required';return;}
-  if(!eUser.value._id&&!eUser.value.newPwd){mErr.value='Password required for new users';return;}
-  saving.value=true;mErr.value='';
-  try{
-    const payload={...eUser.value};
-    if(eUser.value._id){
-      if(payload.newPwd)payload.newPassword=payload.newPwd;
-      await api('PUT','/auth/users/'+eUser.value._id,payload);
-    }else{
-      await api('POST','/auth/users',{...payload,password:payload.newPwd});
-    }
-    mUser.value=false;loadUsers();
-  }catch(e){mErr.value=e.message;}
-  saving.value=false;
-}
+async function saveUser(){if(!eUser.value.name){mErr.value='Name required';return;}if(!eUser.value._id&&!eUser.value.newPwd){mErr.value='Password required for new users';return;}saving.value=true;mErr.value='';try{if(eUser.value._id)await api('PUT','/auth/users/'+eUser.value._id,eUser.value);else await api('POST','/auth/users',{...eUser.value,password:eUser.value.newPwd});mUser.value=false;loadUsers();}catch(e){mErr.value=e.message;}saving.value=false;}
 async function disableUser(id){if(!confirm('Disable this user?'))return;try{await api('PUT','/auth/users/'+id,{active:false});loadUsers();}catch(e){alert(e.message);}}
 
 // ── CASH ACCOUNT LEDGER ────────────────────────────────────────────────────
@@ -1026,130 +1001,6 @@ function applyInvTypeTaxesToItems(){
 
 // ── INVOICE DETAIL ─────────────────────────────────────────────────────────
 function openInvDetail(inv){invDet.value={...inv};mInvDetail.value=true;}
-
-// ── CUSTOMER DETAIL ─────────────────────────────────────────────────────────
-const mCustDetail=ref(false);
-const custDetail=ref({customer:null,invoices:[]});
-async function viewCustDetail(c){
-  try{
-    custDetail.value=await api('GET','/customers/'+c._id);
-    mCustDetail.value=true;
-  }catch(e){alert(e.message);}
-}
-
-// ── PRINT TRIAL BALANCE ─────────────────────────────────────────────────────
-function printTrialBalance(){
-  const co=JSON.parse(localStorage.getItem('storeos_co')||'{}');
-  const tb=trialBalance.value;
-  const rows=(tb.accounts||[]).map(r=>`
-    <tr>
-      <td>${r.account}${r.code?`<span style="font-size:10px;color:#999;margin-left:6px">${r.code}</span>`:''}</td>
-      <td style="text-transform:capitalize;color:#555">${r.type}</td>
-      <td style="text-align:right">${f(r.debit)}</td>
-      <td style="text-align:right">${f(r.credit)}</td>
-      <td style="text-align:right;color:#16a34a;font-weight:600">${r.balanceDr?f(r.balanceDr):'—'}</td>
-      <td style="text-align:right;color:#dc2626;font-weight:600">${r.balanceCr?f(r.balanceCr):'—'}</td>
-    </tr>`).join('');
-  const debitSum=(tb.accounts||[]).reduce((s,r)=>s+r.debit,0);
-  const creditSum=(tb.accounts||[]).reduce((s,r)=>s+r.credit,0);
-  const w=window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><title>Trial Balance</title>
-    <style>
-      body{font-family:'DM Sans',Arial,sans-serif;font-size:13px;margin:0;padding:0;color:#000}
-      .page{padding:16mm 15mm;max-width:820px;margin:0 auto}
-      h1{font-size:20px;margin:0 0 2px}h2{font-size:16px;font-weight:700;margin:4px 0 2px}
-      .sub{font-size:11px;color:#666;margin-bottom:16px}
-      table{width:100%;border-collapse:collapse;margin-top:12px}
-      thead th{padding:8px 10px;border-bottom:2px solid #333;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#555;font-weight:600;white-space:nowrap}
-      tbody td{padding:7px 10px;border-bottom:1px solid #e5e7eb;font-size:12px}
-      tfoot td{padding:9px 10px;border-top:2px solid #333;background:#f9fafb;font-weight:700}
-      .status{font-size:13px;font-weight:700;text-align:center;margin-top:12px;padding:8px;border-radius:4px}
-      .balanced{background:#d1fae5;color:#065f46}.unbalanced{background:#fee2e2;color:#991b1b}
-      @page{size:A4;margin:15mm}@media print{.np{display:none}}
-    </style></head><body><div class="page">
-      ${co.name?`<h1>${co.name}</h1>`:''}
-      <h2>Trial Balance</h2>
-      <div class="sub">Generated ${new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'})}</div>
-      <table>
-        <thead><tr>
-          <th style="text-align:left">Account</th>
-          <th style="text-align:left">Type</th>
-          <th style="text-align:right">Debit Total</th>
-          <th style="text-align:right">Credit Total</th>
-          <th style="text-align:right">Balance Dr</th>
-          <th style="text-align:right">Balance Cr</th>
-        </tr></thead>
-        <tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:#999;padding:20px">No transactions yet.</td></tr>'}</tbody>
-        <tfoot><tr>
-          <td colspan="2" style="text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:1px">TOTALS</td>
-          <td style="text-align:right;color:#555">${f(debitSum)}</td>
-          <td style="text-align:right;color:#555">${f(creditSum)}</td>
-          <td style="text-align:right;color:#16a34a">${f(tb.totalDr||0)}</td>
-          <td style="text-align:right;color:#dc2626">${f(tb.totalCr||0)}</td>
-        </tr></tfoot>
-      </table>
-      <div class="status ${tb.balanced?'balanced':'unbalanced'}">
-        ${tb.balanced?'✓ BALANCED — books are healthy':'✗ OUT OF BALANCE BY '+f(Math.abs((tb.totalDr||0)-(tb.totalCr||0)))}
-      </div>
-      <div class="np" style="margin-top:16px;text-align:right">
-        <button onclick="window.print()" style="padding:8px 16px;cursor:pointer;margin-right:8px">Print</button>
-        <button onclick="window.close()" style="padding:8px 16px;cursor:pointer">Close</button>
-      </div>
-    </div></body></html>`);
-  w.document.close();
-}
-
-// ── PRINT DAILY CASH REPORT ─────────────────────────────────────────────────
-function printDailyCashReport(){
-  const co=JSON.parse(localStorage.getItem('storeos_co')||'{}');
-  const r=rpt.value;
-  if(!r.date)return;
-  const rows=(r.rows||[]).map(row=>`
-    <tr>
-      <td style="padding:7px 10px;border-bottom:1px solid #e5e7eb">${row.label}${row.count?` <span style="font-size:10px;color:#666">(${row.count})</span>`:''}</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;text-align:right;color:#dc2626">${row.debit?f(row.debit):''}</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;text-align:right;color:#16a34a">${row.credit?f(row.credit):''}</td>
-    </tr>`).join('');
-  const cashAccRows=(r.cashAccounts||[]).map(a=>`<tr><td style="padding:5px 8px">${a.name}</td><td style="padding:5px 8px;text-align:right;font-weight:600">${f(a.balance)}</td></tr>`).join('');
-  const w=window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><title>Daily Cash Balance Report</title>
-    <style>
-      body{font-family:'DM Sans',Arial,sans-serif;font-size:13px;margin:0;padding:0;color:#000}
-      .page{padding:16mm 15mm;max-width:640px;margin:0 auto}
-      h1{font-size:18px;margin:0 0 2px}h2{font-size:15px;font-weight:700;margin:4px 0 2px}
-      .sub{font-size:11px;color:#666;margin-bottom:16px}
-      table{width:100%;border-collapse:collapse}
-      thead th{padding:8px 10px;border-bottom:2px solid #333;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#555;font-weight:600}
-      .ft td{padding:9px 10px;border-top:2px solid #333;background:#f9fafb;font-weight:700}
-      .ch-row td{background:#fff8e1;border-top:2px solid #f59e0b;padding:9px 10px;font-weight:700}
-      .cih-row td{background:#d1fae5;border-top:2px solid #16a34a;padding:11px 10px;font-weight:700;font-size:15px;color:#065f46}
-      @page{size:A4;margin:15mm}@media print{.np{display:none}}
-    </style></head><body><div class="page">
-      ${co.name?`<h1>${co.name}</h1>`:''}
-      <h2>Daily Cash Balance Report</h2>
-      <div class="sub">${new Date(r.date).toLocaleDateString('en-GB',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})}</div>
-      <table>
-        <thead><tr>
-          <th style="text-align:left;width:56%">Description</th>
-          <th style="text-align:right;width:22%;color:#dc2626">Debit (Out)</th>
-          <th style="text-align:right;width:22%;color:#16a34a">Credit (In)</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-        <tfoot>
-          <tr class="ft"><td>Total</td><td style="text-align:right;color:#dc2626">${f(r.totalDebit||0)}</td><td style="text-align:right;color:#16a34a">${f(r.totalCredit||0)}</td></tr>
-          <tr class="ch-row"><td>Cash in Hand</td><td></td><td style="text-align:right;color:#d97706">${f(r.cashInHand||0)}</td></tr>
-          ${(r.undepositedCheques?.total||0)>0?`<tr style="background:#eff6ff"><td style="padding:7px 10px">Undeposited Cheques (${r.undepositedCheques?.count} pending)</td><td></td><td style="padding:7px 10px;text-align:right;color:#2563eb">${f(r.undepositedCheques?.total||0)}</td></tr>`:''}
-          <tr class="cih-row"><td>Cash in Hand (incl. Undeposited Cheques)</td><td></td><td style="text-align:right">${f(r.cashInHandWithCheques||0)}</td></tr>
-        </tfoot>
-      </table>
-      ${cashAccRows?`<div style="margin-top:12px;padding:10px;border:1px solid #e5e7eb;border-radius:4px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:8px;font-weight:600">Cash Account Breakdown</div><table><tbody>${cashAccRows}</tbody></table></div>`:''}
-      <div class="np" style="margin-top:16px;text-align:right">
-        <button onclick="window.print()" style="padding:8px 16px;cursor:pointer;margin-right:8px">Print</button>
-        <button onclick="window.close()" style="padding:8px 16px;cursor:pointer">Close</button>
-      </div>
-    </div></body></html>`);
-  w.document.close();
-}
 
 // ── PO DETAIL: Payment Stages + Goods Received ────────────────────────────
 async function finalizePO(){
@@ -1318,7 +1169,7 @@ async function saveReturn(){
 }
 
 onMounted(()=>{if(tok.value){loadDash();loadTxRates();loadCas();loadInvTypes();loadLocs();loadSavedCats();loadCats();}});
-return{tok,me,lf,lerr,lding,spwd,pw,pwErr,pwOk,can,hasPermission,ROLE_PRESETS,applyRolePreset,login,logout,changePw,
+return{tok,me,lf,lerr,lding,spwd,pw,pwErr,pwOk,can,login,logout,changePw,
 pg,saving,mErr,dash,prods,invs,pos,custs,supps,cats,txRates,allTxRates,taxRpt,users,invTypes,locs,
 cas,xfers,exps,exSumm,expCats,baccs,btxs,btab,btf,chqs,chqf,
 ledDays,trial,trialGrp,ledV,ledFr,ledTo,ledAccList,ledAcc,accLedRows,
@@ -1327,7 +1178,7 @@ psrch,ifilt,pofilt,exFrom,exTo,suppHist,stmtAcc,stmtFr,stmtTo,stmtRows,
 payDoc,payAmt,payMode,payCashAcc,payBankAcc,payChqNo,payDate,
 iSrch,iSrchRes,iSrchLoading,poSrch,poSrchRes,invNoPreview,nInv,nPO,
 mProd,mStk,mCust,mSupp,mSuppH,mCA,mXfer,mExp,mPay,mTxRate,mInvType,mLoc,mUser,mBAcc,mBTx,mStmt,mChq,mChqSts,mInv,mPO,
-eProd,eStk,eCust,eSupp,eCA,eXfer,eExp,eTxRate,eInvType,eLoc,eUser,eBAcc,eBTx,eChq,chqStsData,
+eProd,eStk,eCust,eSupp,eCA,eXfer,eExp,eTxRate,eInvType,eLoc,eUser,eBAcc,eBTx,eChq,chqStsData,PERM_GROUPS,applyRoleDefaults,
 tdate,todayStr,lowStock,pendChq,f,fd,fdL,bp,bs,chqSC,chqDue,
 openProd,addProdLoc,saveProd,delProd,openStk,saveStkAdj,saveLocStk,
 previewInvNo,onCustChange,srchProds,addFirstProd,addProdToInv,addTaxToLine,calcInv,openNewInv,saveInv,delInv,
@@ -1341,8 +1192,7 @@ openLoc,saveLoc,openUser,saveUser,disableUser,viewCashLedger,loadCashLedger,cash
 loadLed,loadAccLed,loadTaxRpt,loadTaxMonthly,loadRpt,expandedRptRows,toggleRptRow,loadInvs,loadExps,mCat,eCat,savedCats,pCatFilter,saveCat,delCat,prodsByCategory,mQuickProd,openQuickProd,saveQuickProd,toggleLooseMode,
   isDark,toggleTheme,mCoSettings,coSettings,saveCoSettings,
   mPrintInv,printInv,printTpl,printColor,printShowTax,printShowNotes,invPreviewStyle,printInvoice,doPrint,
-  ledgerAccs,mLedgerAcc,eLedgerAcc,mJournalEntry,eJournalEntry,openJournalEntry,saveJournalEntry,mQuickJournal,eQuickJournal,qjAccountGroups,openQuickJournal,onQJTypeChange,onQJDebitChange,onQJCreditChange,saveQuickJournal,mLedgerAccDetail,ledgerAccDetail,mEditLedgerEntry,eEditLedgerEntry,editLedgerEntry,saveLedgerEntry,delLedgerEntry,ledgerAccsByType,loadLedgerAccs,openLedgerAcc,saveLedgerAcc,delLedgerAcc,viewLedgerAcc,trialBalance,loadTrialBalance,expAccFilter,onLedgerAccChange,
-  mCustDetail,custDetail,viewCustDetail,printTrialBalance,printDailyCashReport};
+  ledgerAccs,mLedgerAcc,eLedgerAcc,mJournalEntry,eJournalEntry,openJournalEntry,saveJournalEntry,mQuickJournal,eQuickJournal,qjAccountGroups,openQuickJournal,onQJTypeChange,onQJDebitChange,onQJCreditChange,saveQuickJournal,mLedgerAccDetail,ledgerAccDetail,mEditLedgerEntry,eEditLedgerEntry,editLedgerEntry,saveLedgerEntry,delLedgerEntry,ledgerAccsByType,loadLedgerAccs,openLedgerAcc,saveLedgerAcc,delLedgerAcc,viewLedgerAcc,trialBalance,loadTrialBalance,expAccFilter,onLedgerAccChange};
 }}).mount('#app');
 });
 
