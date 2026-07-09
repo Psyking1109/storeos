@@ -926,10 +926,15 @@ async function delInvType(id){if(!confirm('Delete?'))return;try{await api('DELET
 function openLoc(l){eLoc.value=l?{...l}:{name:'',code:'',description:''};mLoc.value=true;}
 async function saveLoc(){if(!eLoc.value.name){alert('Name required');return;}saving.value=true;try{if(eLoc.value._id)await api('PUT','/locations/'+eLoc.value._id,eLoc.value);else await api('POST','/locations',eLoc.value);mLoc.value=false;loadLocs();}catch(e){alert(e.message);}saving.value=false;}
 function openUser(u){
+  const PKEYS=['dashboard','invoices','customers','purchases','suppliers','inventory','cashAccounts','expenses','banking','cheques','ledger','chartOfAccounts','trialBalance','dailyReport','taxReport','monthlyTax','invoiceSettings','locations','taxRates','userManagement','canDeleteRecords','canEditPastEntries'];
+  function buildPerms(role,stored){
+    const preset=ROLE_PRESETS[role]||ROLE_PRESETS.cashier;
+    const p={};
+    for(const k of PKEYS)p[k]=(stored&&(stored[k]===true||stored[k]===false))?stored[k]:preset[k];
+    return p;
+  }
   if(u&&u._id){
-    const p=u.permissions||{};
-    const configured=Object.values(p).some(v=>v!==undefined&&v!==null);
-    eUser.value={...u,newPwd:'',permissions:configured?{...p}:{...(ROLE_PRESETS[u.role]||ROLE_PRESETS.cashier)}};
+    eUser.value={...u,newPwd:'',permissions:buildPerms(u.role,u.permissions)};
   }else{
     eUser.value={name:'',username:'',role:'cashier',newPwd:'',permissions:{...ROLE_PRESETS.cashier}};
   }
