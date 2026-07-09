@@ -318,7 +318,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <div style="font-size:11px;color:var(--tx3)">{{cat.items.length}} items · Total value: {{f(cat.items.reduce((s,p)=>s+p.stock*p.costPrice,0))}}</div>
         </div>
         <div class="card" style="margin-bottom:8px"><div class="tw"><table>
-          <thead><tr><th>Name / SKU</th><th>Unit</th><th>Loose</th><th>Cost</th><th>Price</th><th>Taxes</th><th>Stock</th><th>Value</th><th></th></tr></thead>
+          <thead><tr><th>Name / SKU</th><th>Unit</th><th>Loose</th><th>Cost</th><th>Price</th><th>Taxes</th><th>Stock</th><th>Available</th><th>Ordered</th><th>Invoiced–Undelivered</th><th>Value</th><th></th></tr></thead>
           <tbody>
             <tr v-for="p in cat.items" :key="p._id">
               <td><div style="font-weight:600;color:var(--txt)">{{p.name}}</div><div class="mn cm" style="font-size:10px">{{p.sku||'—'}}</div></td>
@@ -333,6 +333,9 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
               <span class="badge" :class="p.stock<=p.minStock?'blow':'bok'">{{p.stock}} {{p.unit}}</span>
               <span v-if="p.allowLoose&&p.looseStock>0" style="font-size:10px;color:var(--tx2);display:block;margin-top:2px">+{{p.looseStock}} {{p.looseUnit}} loose</span>
             </td>
+              <td class="mn" :style="{color:availForSale(p)<=0?'var(--red)':'var(--grn)'}">{{availForSale(p)}}</td>
+              <td class="mn" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px" @click="openCommitDrill(p,'ordered')">{{orderedQty(p)}}</td>
+              <td class="mn" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px;color:var(--org)" @click="openCommitDrill(p,'invoiced')">{{undeliveredQty(p)}}</td>
               <td class="mn">{{f(p.stock*p.costPrice)}}</td>
               <td><div class="fx g6"><button class="btn btn-o btn-sm" @click="openProd(p)">Edit</button><button class="btn btn-o btn-sm" @click="openStk(p)">Stock</button><button class="btn btn-b btn-sm" @click="viewStockMovement(p._id)">📊</button><button class="btn btn-d btn-sm" @click="delProd(p._id)">Del</button></div></td>
             </tr>
@@ -344,7 +347,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
     <!-- Flat view when searching or filtering -->
     <template v-else>
       <div class="card"><div class="tw"><table>
-        <thead><tr><th>Name / SKU</th><th>Category</th><th>Unit</th><th>Cost</th><th>Price</th><th>Stock</th><th>Value</th><th></th></tr></thead>
+        <thead><tr><th>Name / SKU</th><th>Category</th><th>Unit</th><th>Cost</th><th>Price</th><th>Stock</th><th>Available</th><th>Ordered</th><th>Invoiced–Undelivered</th><th>Value</th><th></th></tr></thead>
         <tbody>
           <tr v-for="p in prods" :key="p._id">
             <td><div style="font-weight:600;color:var(--txt)">{{p.name}}</div><div class="mn cm" style="font-size:10px">{{p.sku||'—'}}</div></td>
@@ -355,10 +358,13 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
               <span class="badge" :class="p.stock<=p.minStock?'blow':'bok'">{{p.stock}} {{p.unit}}</span>
               <span v-if="p.allowLoose&&p.looseStock>0" style="font-size:10px;color:var(--tx2);display:block;margin-top:2px">+{{p.looseStock}} {{p.looseUnit}} loose</span>
             </td>
+            <td class="mn" :style="{color:availForSale(p)<=0?'var(--red)':'var(--grn)'}">{{availForSale(p)}}</td>
+            <td class="mn" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px" @click="openCommitDrill(p,'ordered')">{{orderedQty(p)}}</td>
+            <td class="mn" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px;color:var(--org)" @click="openCommitDrill(p,'invoiced')">{{undeliveredQty(p)}}</td>
             <td class="mn">{{f(p.stock*p.costPrice)}}</td>
             <td><div class="fx g6"><button class="btn btn-o btn-sm" @click="openProd(p)">Edit</button><button class="btn btn-o btn-sm" @click="openStk(p)">Stock</button><button class="btn btn-b btn-sm" @click="viewStockMovement(p._id)">📊</button><button class="btn btn-d btn-sm" @click="delProd(p._id)">Del</button></div></td>
           </tr>
-          <tr v-if="!prods.length"><td colspan="8" class="emp"><div class="eic">📦</div><div>No products found</div></td></tr>
+          <tr v-if="!prods.length"><td colspan="11" class="emp"><div class="eic">📦</div><div>No products found</div></td></tr>
         </tbody>
       </table></div></div>
     </template>
@@ -379,15 +385,74 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
   </div>
 </template>
 
+<!-- COMMITMENTS DRILL-DOWN MODAL (Ordered / Invoiced–Undelivered breakdown) -->
+<div class="mo" v-if="mCommitDrill" @click.self="mCommitDrill=false">
+  <div class="md md-lg"><div class="mh"><h3>{{commitDrillTitle}}</h3><button class="xbtn" @click="mCommitDrill=false">×</button></div>
+    <div class="mb">
+      <div v-if="commitDrillKind==='ordered'" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+        <thead><tr style="background:rgba(255,255,255,.04)">
+          <th style="padding:7px 10px;text-align:left;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd)">Doc No.</th>
+          <th style="padding:7px 10px;text-align:left;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd)">Type</th>
+          <th style="padding:7px 10px;text-align:left;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd)">Customer</th>
+          <th style="padding:7px 10px;text-align:right;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd)">Qty</th>
+          <th style="padding:7px 10px;text-align:right;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd)">Date</th>
+        </tr></thead>
+        <tbody>
+          <tr v-for="row in commitDrillRows" :key="row.invoiceId" style="cursor:pointer" @click="openCommitDrillDoc(row)">
+            <td class="mn ca" style="padding:8px 10px;border-bottom:1px solid var(--brd);text-decoration:underline">{{row.invoiceNo}}</td>
+            <td style="padding:8px 10px;border-bottom:1px solid var(--brd);text-transform:capitalize">{{row.type}}</td>
+            <td style="padding:8px 10px;border-bottom:1px solid var(--brd)">{{row.customerName}}</td>
+            <td class="mn" style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right">{{row.qty}}</td>
+            <td class="mn" style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right">{{fd(row.date)}}</td>
+          </tr>
+          <tr v-if="!commitDrillRows.length"><td colspan="5" class="emp"><div>No open bookings/proformas for this product</div></td></tr>
+        </tbody>
+      </table></div>
+      <div v-else style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+        <thead><tr style="background:rgba(255,255,255,.04)">
+          <th style="padding:7px 10px;text-align:left;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd)">Invoice No.</th>
+          <th style="padding:7px 10px;text-align:left;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd)">Customer</th>
+          <th style="padding:7px 10px;text-align:right;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd)">Invoiced</th>
+          <th style="padding:7px 10px;text-align:right;font-size:9px;text-transform:uppercase;color:var(--grn);border-bottom:1px solid var(--brd)">Delivered</th>
+          <th style="padding:7px 10px;text-align:right;font-size:9px;text-transform:uppercase;color:var(--org);border-bottom:1px solid var(--brd)">Pending</th>
+          <th style="padding:7px 10px;text-align:right;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd)">Date</th>
+        </tr></thead>
+        <tbody>
+          <tr v-for="row in commitDrillRows" :key="row.invoiceId" style="cursor:pointer" @click="openCommitDrillDoc(row)">
+            <td class="mn ca" style="padding:8px 10px;border-bottom:1px solid var(--brd);text-decoration:underline">{{row.invoiceNo}}</td>
+            <td style="padding:8px 10px;border-bottom:1px solid var(--brd)">{{row.customerName}}</td>
+            <td class="mn" style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right">{{row.invoicedQty}}</td>
+            <td class="mn" style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right;color:var(--grn)">{{row.deliveredQty}}</td>
+            <td class="mn" style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right;color:var(--org)">{{row.pendingQty}}</td>
+            <td class="mn" style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right">{{fd(row.date)}}</td>
+          </tr>
+          <tr v-if="!commitDrillRows.length"><td colspan="6" class="emp"><div>No outstanding deliveries for this product</div></td></tr>
+        </tbody>
+      </table></div>
+    </div>
+    <div class="mf"><button class="btn btn-o" @click="mCommitDrill=false">Close</button></div>
+  </div>
+</div>
+
 <!-- INVOICES -->
 <template v-if="pg==='inv'">
   <div class="topbar"><h2>Invoices</h2>
     <div class="tba">
       <select v-model="ifilt" @change="loadInvs" class="fc" style="width:115px"><option value="">All Status</option><option value="pending">Pending</option><option value="partial">Partial</option><option value="paid">Paid</option></select>
-      <button class="btn btn-p" @click="openNewInv">+ New Invoice</button>
+      <button class="btn btn-o btn-sm" @click="openNewInv('booking')">+ Booking</button>
+      <button class="btn btn-o btn-sm" @click="openNewInv('proforma')">+ Proforma</button>
+      <button class="btn btn-p" @click="openNewInv('invoice')">+ New Invoice</button>
     </div>
   </div>
-  <div class="content">
+  <!-- Document type tabs -->
+  <div class="content" style="padding-bottom:0">
+    <div style="display:flex;gap:6px;margin-bottom:12px">
+      <button @click="docTypeFilt='invoice';loadInvs()" class="btn btn-sm" :class="docTypeFilt==='invoice'?'btn-p':'btn-o'">Invoices</button>
+      <button @click="docTypeFilt='booking';loadInvs()" class="btn btn-sm" :class="docTypeFilt==='booking'?'btn-p':'btn-o'">Bookings</button>
+      <button @click="docTypeFilt='proforma';loadInvs()" class="btn btn-sm" :class="docTypeFilt==='proforma'?'btn-p':'btn-o'">Proformas</button>
+    </div>
+  </div>
+  <div class="content" style="padding-top:0">
     <div class="card"><div class="tw"><table>
       <thead><tr><th>Invoice</th><th>Type</th><th>Customer</th><th>Date</th><th>Subtotal</th><th>VAT</th><th>Tax</th><th>Total</th><th>Paid</th><th>Balance</th><th>Status</th><th></th></tr></thead>
       <tbody>
@@ -395,6 +460,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <td>
             <span class="mn fw" :class="i.isReturn?'cr':'ca'" style="cursor:pointer;text-decoration:underline;text-underline-offset:3px" @click="openInvDetail(i)">{{i.invoiceNo}}</span>
             <span v-if="i.isReturn" style="font-size:9px;background:rgba(224,82,82,.15);color:var(--red);padding:1px 5px;border-radius:3px;margin-left:4px;font-family:var(--fm)">RETURN</span>
+            <div v-if="i.convertedFromNo" style="font-size:10px;color:var(--tx3);margin-top:2px">Converted from {{i.convertedFromNo}}</div>
           </td>
           <td class="mn cm" style="font-size:11px">{{i.invoiceTypeName||'—'}}</td>
           <td>{{i.customerName}}</td><td class="mn cm">{{fd(i.date)}}</td>
@@ -1145,6 +1211,36 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
         <tr v-if="!invTypes.length"><td colspan="7" class="emp"><div class="eic">🔢</div><div>No invoice types. Create one to get custom invoice numbers.</div></td></tr>
       </tbody>
     </table></div></div>
+
+    <!-- IRD Gazette Numbering (optional, off by default) -->
+    <div class="card" style="margin-top:18px">
+      <div class="ch"><h3>IRD Gazette Numbering (optional)</h3></div>
+      <div class="cb">
+        <div style="font-size:12px;color:var(--tx3);margin-bottom:14px">
+          Per IRD Gazette Extraordinary No. 2463/05, invoice numbers can follow the format
+          <span class="mn ca">YYMMM_QQQQ_XXXXX</span> (e.g. <span class="mn ca">26JUL_HQ01_00001</span>).
+          This is optional — your existing invoice numbering keeps working as-is unless you turn this on.
+          This numbering applies to final Invoices only; Bookings/Proformas keep their own ORD-/PRO- numbering.
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <button @click="irdSettings.irdNumberingEnabled=!irdSettings.irdNumberingEnabled" class="btn" :class="irdSettings.irdNumberingEnabled?'btn-p':'btn-o'">
+            {{irdSettings.irdNumberingEnabled?'✓ Enabled':'Use IRD Gazette numbering format'}}
+          </button>
+        </div>
+        <div v-if="irdSettings.irdNumberingEnabled" class="fr">
+          <div class="fl">
+            <label>Branch / Unit Code (QQQQ)</label>
+            <input v-model="irdSettings.irdBranchCode" @input="previewIrdNumber" class="fc" placeholder="e.g. HQ01" style="text-transform:uppercase"/>
+          </div>
+          <div class="fl">
+            <label>Next Invoice Number Preview</label>
+            <div class="fc" style="background:var(--sur2);font-family:var(--fm);color:var(--acc)">{{irdSettings.preview||'Enter a branch code above'}}</div>
+          </div>
+        </div>
+        <div v-if="irdSettingsErr" class="al al-d" style="margin-top:10px">{{irdSettingsErr}}</div>
+        <div style="margin-top:14px"><button class="btn btn-p" @click="saveIrdSettings" :disabled="savingIrd">{{savingIrd?'Saving...':'Save Settings'}}</button></div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -2034,9 +2130,21 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
 
 <!-- INVOICE MODAL (large) -->
 <div class="mo" v-if="mInv" @click.self="mInv=false">
-  <div class="md md-xl"><div class="mh"><h3>New Invoice</h3><button class="xbtn" @click="mInv=false">×</button></div>
+  <div class="md md-xl"><div class="mh"><h3>{{nInv.type==='booking'?'New Booking':nInv.type==='proforma'?'New Proforma':'New Invoice'}}</h3><button class="xbtn" @click="mInv=false">×</button></div>
     <div class="mb">
       <div v-if="mErr" class="al al-d">{{mErr}}</div>
+      <!-- Document Type Selector -->
+      <div class="fl" style="margin-bottom:10px">
+        <label>Document Type</label>
+        <div style="display:flex;gap:8px">
+          <button @click="nInv.type='booking'" class="btn btn-sm" :class="nInv.type==='booking'?'btn-p':'btn-o'">📋 Booking / Order</button>
+          <button @click="nInv.type='proforma'" class="btn btn-sm" :class="nInv.type==='proforma'?'btn-p':'btn-o'">📝 Proforma</button>
+          <button @click="nInv.type='invoice'" class="btn btn-sm" :class="nInv.type==='invoice'?'btn-p':'btn-o'">🧾 Invoice</button>
+        </div>
+        <div v-if="nInv.type!=='invoice'" style="font-size:11px;color:var(--tx3);margin-top:4px">
+          This is a soft commitment — it won't affect stock levels or accounting until confirmed into an Invoice.
+        </div>
+      </div>
       <!-- Invoice Type + Number Preview -->
       <div class="fr" style="margin-bottom:10px">
         <div class="fl"><label>Invoice Type <span style="font-size:10px;color:var(--tx3)">(sets auto number)</span></label>
@@ -2192,7 +2300,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
         </div>
       </div>
     </div>
-    <div class="mf"><button class="btn btn-o" @click="mInv=false">Cancel</button><button class="btn btn-p" @click="saveInv" :disabled="saving||!nInv.items.length">{{saving?'Saving...':'Create Invoice'}}</button></div>
+    <div class="mf"><button class="btn btn-o" @click="mInv=false">Cancel</button><button class="btn btn-p" @click="saveInv" :disabled="saving||!nInv.items.length">{{saving?'Saving...':(nInv.type==='booking'?'Create Booking':nInv.type==='proforma'?'Create Proforma':'Create Invoice')}}</button></div>
   </div>
 </div>
 
@@ -2650,8 +2758,19 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
 <div class="mo" v-if="mInvDetail" @click.self="mInvDetail=false">
   <div class="md md-lg"><div class="mh">
     <div>
-      <div style="display:flex;align-items:center;gap:8px"><h3 class="mn ca">{{invDet.invoiceNo}}</h3><span v-if="invDet.taxInvoice" class="badge bpend" style="font-size:10px">TAX INVOICE</span><span class="badge" :class="bs(invDet.status)">{{invDet.status}}</span></div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <h3 class="mn ca">{{invDet.invoiceNo}}</h3>
+        <span v-if="invDet.taxInvoice" class="badge bpend" style="font-size:10px">TAX INVOICE</span>
+        <span class="badge" :class="bs(invDet.status)">{{invDet.status}}</span>
+        <span v-if="invDet.type==='booking'" class="badge" style="background:rgba(240,165,0,.15);color:var(--org)">BOOKING</span>
+        <span v-if="invDet.type==='proforma'" class="badge" style="background:rgba(240,165,0,.15);color:var(--org)">PROFORMA</span>
+        <span v-if="invDet.type==='invoice'&&invDet.overallDeliveryStatus==='not_delivered'" class="badge" style="background:rgba(224,82,82,.15);color:var(--red)">NOT DELIVERED</span>
+        <span v-if="invDet.type==='invoice'&&invDet.overallDeliveryStatus==='partial'" class="badge" style="background:rgba(240,165,0,.15);color:var(--org)">PARTIALLY DELIVERED</span>
+        <span v-if="invDet.type==='invoice'&&invDet.overallDeliveryStatus==='fully_delivered'" class="badge" style="background:rgba(39,192,122,.15);color:var(--grn)">FULLY DELIVERED</span>
+      </div>
       <div style="font-size:12px;color:var(--tx2);margin-top:2px">{{invDet.customerName}} &mdash; {{fd(invDet.date)}}</div>
+      <div v-if="invDet.convertedFromNo" style="font-size:11px;color:var(--tx3);margin-top:2px">Converted from {{invDet.convertedFromNo}}</div>
+      <div v-if="invDet.converted&&invDet.convertedToNo" style="font-size:11px;color:var(--acc);margin-top:2px">→ Converted to {{invDet.convertedToNo}}</div>
     </div>
     <button class="xbtn" @click="mInvDetail=false">×</button>
   </div>
@@ -2660,6 +2779,8 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       <thead><tr style="background:rgba(255,255,255,.04)">
         <th style="padding:7px 10px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Product</th>
         <th style="padding:7px 10px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Qty</th>
+        <th v-if="invDet.type==='invoice'" style="padding:7px 10px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--grn);font-family:var(--fm);border-bottom:1px solid var(--brd)">Delivered</th>
+        <th v-if="invDet.type==='invoice'" style="padding:7px 10px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--org);font-family:var(--fm);border-bottom:1px solid var(--brd)">Pending</th>
         <th style="padding:7px 10px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Unit Price</th>
         <th style="padding:7px 10px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Taxes</th>
         <th style="padding:7px 10px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--org);font-family:var(--fm);border-bottom:1px solid var(--brd)">Tax</th>
@@ -2669,6 +2790,8 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
         <tr v-for="item in (invDet.items||[])" :key="item.productName">
           <td style="padding:8px 10px;border-bottom:1px solid var(--brd);color:var(--txt);font-weight:500">{{item.productName}}</td>
           <td style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right;font-family:var(--fm)">{{item.qty}} {{item.unit}}</td>
+          <td v-if="invDet.type==='invoice'" style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right;font-family:var(--fm);color:var(--grn)">{{item.deliveredQty||0}}</td>
+          <td v-if="invDet.type==='invoice'" style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right;font-family:var(--fm)" :style="{color:(item.pendingQty>0?'var(--org)':'var(--tx3)')}">{{item.pendingQty!==undefined?item.pendingQty:(item.qty-(item.deliveredQty||0))}}</td>
           <td style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right;font-family:var(--fm)">{{f(item.unitPrice)}}</td>
           <td style="padding:8px 10px;border-bottom:1px solid var(--brd)"><span v-for="tl in (item.taxLines||[])" :key="tl.taxCode" class="txbadge" style="cursor:default">{{tl.taxCode}} {{tl.rate}}%</span><span v-if="!(item.taxLines||[]).length" style="color:var(--tx3)">—</span></td>
           <td style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right;font-family:var(--fm);color:var(--org)">{{f(item.taxAmount||0)}}</td>
@@ -2697,7 +2820,31 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       </div>
     </div>
   </div>
-  <div class="mf"><button class="btn btn-o" @click="mInvDetail=false">Close</button></div>
+  <div class="mf">
+    <button class="btn btn-o" @click="mInvDetail=false">Close</button>
+    <button v-if="invDet.type!=='invoice'&&!invDet.converted" class="btn btn-p" @click="convertToInvoice(invDet)" :disabled="converting">{{converting?'Converting...':'Confirm → Invoice'}}</button>
+    <button v-if="invDet.type==='invoice'&&invDet.overallDeliveryStatus!=='fully_delivered'" class="btn btn-p" @click="openDeliveryModal(invDet)">Record Delivery</button>
+  </div>
+  </div>
+</div>
+
+<!-- RECORD DELIVERY MODAL -->
+<div class="mo" v-if="mDelivery" @click.self="mDelivery=false">
+  <div class="md md-sm"><div class="mh"><h3>Record Delivery — {{delDoc.invoiceNo}}</h3><button class="xbtn" @click="mDelivery=false">×</button></div>
+    <div class="mb">
+      <div style="font-size:12px;color:var(--tx3);margin-bottom:12px">Enter the quantity actually delivered now for each item. Defaults to the full pending quantity — edit if this is a partial delivery.</div>
+      <div v-for="it in delItems" :key="it._id" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--brd2)">
+        <div style="flex:1">
+          <div style="font-weight:500;color:var(--txt)">{{it.productName}}</div>
+          <div style="font-size:11px;color:var(--tx3)">Invoiced: {{it.qty}} &middot; Delivered so far: {{it.deliveredQty}} &middot; Pending: {{it.pendingQty}}</div>
+        </div>
+        <div style="width:100px">
+          <input type="number" v-model.number="it.deliverNow" :max="it.pendingQty" min="0" class="fc" style="text-align:right"/>
+        </div>
+      </div>
+      <div v-if="!delItems.length" style="padding:16px;text-align:center;color:var(--tx3)">Nothing pending — this invoice is fully delivered.</div>
+    </div>
+    <div class="mf"><button class="btn btn-o" @click="mDelivery=false">Cancel</button><button class="btn btn-p" @click="saveDelivery" :disabled="delivering||!delItems.length">{{delivering?'Saving...':'Save Delivery'}}</button></div>
   </div>
 </div>
 

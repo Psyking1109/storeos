@@ -7,8 +7,30 @@ const CashAccount = require('../models/CashAccount');
 const BankAccount = require('../models/BankAccount');
 const Customer    = require('../models/Customer');
 const InvoiceType = require('../models/InvoiceType');
+const Counter     = require('../models/Counter');
+const Settings    = require('../models/Settings');
+const { buildIrdNumber } = require('../utils/irdNumbering');
+
+const DOC_PREFIX = { booking: 'ORD', proforma: 'PRO', invoice: 'INV' };
+
+// Atomic sequential number for Booking/Proforma docs (never skips/repeats under concurrency)
+async function generateBookingOrProformaNumber(type) {
+  const seq = await Counter.next(type); // key: 'booking' | 'proforma'
+  return `${DOC_PREFIX[type]}-${String(seq).padStart(4, '0')}`;
+}
 
 async function generateInvoiceNumber(typeId, date) {
+  // ── Optional IRD Gazette numbering (YYMMM_QQQQ_XXXXX) — only applies to final Invoices, only when enabled ──
+  const settings = await Settings.getSingleton();
+  if (settings.irdNumberingEnabled && settings.irdBranchCode) {
+    const seq = await Counter.next(`ird:${settings.irdBranchCode}`); // atomic — safe under concurrent invoice creation
+    const serial = String(seq).padStart(5, '0'); // numeric only, zero-padded (matches WINPAC example: 26JUL_HQ01_00001)
+    const num = buildIrdNumber(date, settings.irdBranchCode, serial);
+    if (num.length > 40) throw new Error(`Generated IRD invoice number exceeds 40 characters: ${num}`);
+    return num;
+  }
+
+  // ── Existing default numbering (unchanged) ──
   if (!typeId) {
     const last = await Invoice.findOne({ invoiceType: null }).sort({ createdAt: -1 });
     const n = last ? parseInt(last.invoiceNo.split('-')[1] || 0) + 1 : 1;
@@ -87,14 +109,20 @@ function calcTaxes(items, taxInclusive) {
   return { subtotal, totalTax, businessTaxTotal, breakdown: Object.values(breakdown) };
 }
 
-// GET all invoices
+// GET all invoices (optionally filtered by document type: booking/proforma/invoice)
 router.get('/', async (req, res) => {
   try {
-    const { status, customer, from, to } = req.query;
+    const { status, customer, from, to, type, converted } = req.query;
     let q = {};
     if (status)   q.status = status;
     if (customer) q.customer = customer;
     if (from||to) { q.date={}; if(from)q.date.$gte=new Date(from); if(to){const d=new Date(to);d.setHours(23,59,59);q.date.$lte=d;} }
+    // Default to 'invoice' only when no explicit type filter is given — this keeps the existing
+    // Invoices list page showing exactly what it always showed, with no visible change unless
+    // the frontend explicitly asks for bookings/proformas via ?type=booking / ?type=proforma / ?type=all
+    if (type && type !== 'all') q.type = type;
+    else if (!type) q.type = 'invoice';
+    if (converted !== undefined) q.converted = converted === 'true';
     res.json(await Invoice.find(q).sort({ date:-1, createdAt:-1 }));
   } catch(err) { res.status(500).json({ error:err.message }); }
 });
@@ -118,10 +146,12 @@ router.post('/', async (req, res) => {
     if (!data.bankAccount || data.bankAccount==='') delete data.bankAccount;
     if (!data.invoiceType || data.invoiceType==='') delete data.invoiceType;
 
-    // Generate invoice number
-    data.invoiceNo = await generateInvoiceNumber(data.invoiceType, data.date);
+    // Document type: defaults to 'invoice' so existing frontend calls (which never send `type`)
+    // behave EXACTLY as before — this whole feature is additive/opt-in.
+    const docType = ['booking','proforma','invoice'].includes(data.type) ? data.type : 'invoice';
+    data.type = docType;
 
-    // Calculate taxes
+    // Calculate taxes/totals (same for all three document types — a quote still needs a price)
     const { subtotal, totalTax, businessTaxTotal, breakdown } = calcTaxes(data.items || [], data.taxInclusive);
     data.subtotal         = subtotal;
     data.taxAmount        = totalTax;
@@ -131,6 +161,44 @@ router.post('/', async (req, res) => {
       ? (data.items||[]).reduce((s,i) => s+(i.lineTotal||0), 0)
       : subtotal + totalTax) - (data.discount || 0);
     data.balance = data.total - (data.paid || 0);
+
+    // ══════════════════════════════════════════════════════════════
+    // BOOKING / PROFORMA — soft commitment only. No stock, ledger, or
+    // customer-balance impact. Purely a quote/reservation document.
+    // ══════════════════════════════════════════════════════════════
+    if (docType !== 'invoice') {
+      data.invoiceNo = await generateBookingOrProformaNumber(docType);
+      data.status = 'draft';
+      data.paid = 0;
+      data.balance = data.total;
+      // Bookings/proformas never track delivery — force every line to zero
+      for (const item of data.items || []) {
+        item.deliveredQty = 0;
+        item.deliveries = [];
+      }
+      const doc = new Invoice(data);
+      await doc.save();
+      return res.status(201).json(doc);
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // INVOICE (final financial document) — created directly OR via convert.
+    // Stock is only deducted for the DELIVERED portion of each line.
+    // If the caller doesn't specify deliveredQty (existing frontend today
+    // never does), it defaults to the full qty — i.e. "delivered immediately",
+    // which is IDENTICAL to the app's pre-existing behavior.
+    // ══════════════════════════════════════════════════════════════
+    for (const item of data.items || []) {
+      const requested = (item.deliveredQty !== undefined && item.deliveredQty !== null)
+        ? Number(item.deliveredQty)
+        : item.qty; // default: fully delivered now (preserves old behavior)
+      item.deliveredQty = Math.max(0, Math.min(requested, item.qty));
+      item.deliveries = item.deliveredQty > 0
+        ? [{ qty: item.deliveredQty, date: data.date || new Date() }]
+        : [];
+    }
+
+    data.invoiceNo = await generateInvoiceNumber(data.invoiceType, data.date);
     if (data.balance <= 0.001)     data.status = 'paid';
     else if ((data.paid||0) > 0)   data.status = 'partial';
     else                           data.status = 'pending';
@@ -138,16 +206,20 @@ router.post('/', async (req, res) => {
     const invoice = new Invoice(data);
     await invoice.save();
 
-    // Deduct stock — handles loose selling properly
+    // Deduct stock — handles loose selling properly. Only the DELIVERED
+    // quantity moves stock; any pending (undelivered) portion is settled
+    // later via POST /:id/deliver.
     for (const item of data.items||[]) {
       if (!item.product) continue;
+      const deliverNowQty = item.deliveredQty || 0;
+      if (deliverNowQty <= 0) continue; // nothing physically left the store yet
       const prod = await Product.findById(item.product);
       if (!prod) continue;
 
       if (item.looseMode && prod.allowLoose && prod.looseConversion > 0) {
         // LOOSE SALE: qty is in loose units (e.g. kg)
         // Step 1: subtract from existing loose stock first
-        let looseNeeded = item.qty;
+        let looseNeeded = deliverNowQty;
         let currentLoose = prod.looseStock || 0;
         let currentBags  = prod.stock || 0;
 
@@ -172,11 +244,11 @@ router.post('/', async (req, res) => {
         // FULL UNIT SALE: qty is in base units (bags, boxes etc.)
         if (item.location) {
           await Product.findByIdAndUpdate(item.product,
-            { $inc: { stock: -item.qty, [`locationStock.$[el].stock`]: -item.qty } },
+            { $inc: { stock: -deliverNowQty, [`locationStock.$[el].stock`]: -deliverNowQty } },
             { arrayFilters: [{ 'el.location': item.location }] }
           );
         } else {
-          await Product.findByIdAndUpdate(item.product, { $inc: { stock: -item.qty } });
+          await Product.findByIdAndUpdate(item.product, { $inc: { stock: -deliverNowQty } });
         }
       }
     }
@@ -219,6 +291,150 @@ router.post('/', async (req, res) => {
   } catch(err) { res.status(400).json({ error:err.message }); }
 });
 
+// ══════════════════════════════════════════════════════════════════
+// CONVERT — turn a Booking or Proforma into a real Invoice, one click,
+// carrying over customer/items/pricing with zero re-entry.
+// ══════════════════════════════════════════════════════════════════
+router.post('/:id/convert', async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
+    const source = await Invoice.findById(req.params.id);
+    if (!source) return res.status(404).json({ error: 'Not found' });
+    if (source.type === 'invoice') return res.status(400).json({ error: 'This document is already an invoice.' });
+    if (source.converted) return res.status(400).json({ error: `Already converted to ${source.convertedToNo}.` });
+
+    // Rebuild items fresh (deliveredQty/deliveries reset to 0 — nothing has been delivered yet)
+    const items = source.items.map(i => ({
+      product: i.product, productName: i.productName, sku: i.sku, qty: i.qty, unit: i.unit,
+      unitPrice: i.unitPrice, taxLines: i.taxLines, location: i.location, locationName: i.locationName,
+      deliveredQty: 0, deliveries: []
+    }));
+
+    const { subtotal, totalTax, businessTaxTotal, breakdown } = calcTaxes(items, source.taxInclusive);
+    const total = (source.taxInclusive
+      ? items.reduce((s,i) => s+(i.lineTotal||0), 0)
+      : subtotal + totalTax) - (source.discount || 0);
+
+    const invoiceNo = await generateInvoiceNumber(source.invoiceType, source.date);
+
+    const invoice = new Invoice({
+      type: 'invoice',
+      invoiceNo,
+      invoiceType: source.invoiceType,
+      invoiceTypeName: source.invoiceTypeName,
+      customer: source.customer,
+      customerName: source.customerName,
+      date: source.date,
+      dueDate: source.dueDate,
+      items,
+      subtotal, taxAmount: totalTax, businessTaxAmount: businessTaxTotal, taxBreakdown: breakdown,
+      discount: source.discount || 0,
+      total,
+      paid: 0,
+      balance: total,
+      status: 'pending',
+      notes: source.notes,
+      taxInclusive: source.taxInclusive,
+      paymentMode: source.paymentMode,
+      convertedFromId: source._id,
+      convertedFromNo: source.invoiceNo
+    });
+    await invoice.save();
+
+    // No stock movement here — nothing has been delivered yet (deliveredQty is 0 on every line).
+    // Customer balance / ledger ARE recognized at this point (invoice raised = accrual recognized),
+    // matching how a normal invoice would behave, per Section 2 of the design.
+    if (invoice.customer && invoice.balance > 0) {
+      await Customer.findByIdAndUpdate(invoice.customer, { $inc: { balance: invoice.balance } });
+    }
+    const le = [
+      { date: invoice.date, account:'Sales Revenue', accountType:'revenue', debit:0, credit:subtotal, description:`Invoice ${invoice.invoiceNo} (from ${source.invoiceNo})`, reference:invoice.invoiceNo, sourceType:'invoice', sourceId:invoice._id },
+      { date: invoice.date, account:'Accounts Receivable', accountType:'receivable', debit:invoice.total, credit:0, description:`Invoice ${invoice.invoiceNo} (from ${source.invoiceNo})`, reference:invoice.invoiceNo, sourceType:'invoice', sourceId:invoice._id },
+    ];
+    for (const tl of breakdown.filter(t=>!t.businessTax && t.amount)) {
+      le.push({ date: invoice.date, account:tl.taxCode+' Payable', accountType:'payable', debit:0, credit:tl.amount, description:`${tl.taxCode} on ${invoice.invoiceNo}`, reference:invoice.invoiceNo, sourceType:'invoice', sourceId:invoice._id });
+    }
+    for (const tl of breakdown.filter(t=>t.businessTax && t.amount)) {
+      le.push({ date: invoice.date, account:tl.taxCode+' Payable', accountType:'payable', debit:0, credit:tl.amount, description:`${tl.taxCode} liability on ${invoice.invoiceNo}`, reference:invoice.invoiceNo, sourceType:'invoice', sourceId:invoice._id });
+    }
+    await Ledger.insertMany(le);
+
+    // Mark source as converted so it stops showing as "open" anywhere
+    source.converted = true;
+    source.convertedToId = invoice._id;
+    source.convertedToNo = invoice.invoiceNo;
+    await source.save();
+
+    res.status(201).json(invoice);
+  } catch(err) { res.status(400).json({ error: err.message }); }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// DELIVER — record a partial or full delivery against an existing
+// invoice's line items. This is the ONLY place (besides delivery-at-
+// creation) that ever reduces Product.stock for an invoice.
+// Body: { deliveries: [{ itemId, qty }], date? }
+// ══════════════════════════════════════════════════════════════════
+router.post('/:id/deliver', async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
+    const invoice = await Invoice.findById(req.params.id);
+    if (!invoice) return res.status(404).json({ error: 'Not found' });
+    if (invoice.type !== 'invoice') return res.status(400).json({ error: 'Only confirmed invoices support delivery tracking.' });
+
+    const { deliveries, date } = req.body;
+    if (!Array.isArray(deliveries) || !deliveries.length) {
+      return res.status(400).json({ error: 'deliveries array is required, e.g. [{ itemId, qty }]' });
+    }
+    const deliveryDate = date ? new Date(date) : new Date();
+
+    for (const d of deliveries) {
+      const qty = Number(d.qty);
+      if (!qty || qty <= 0) continue;
+      const item = invoice.items.id(d.itemId);
+      if (!item) return res.status(400).json({ error: `Line item ${d.itemId} not found on this invoice.` });
+      const pending = item.qty - (item.deliveredQty || 0);
+      if (qty > pending + 0.0001) {
+        return res.status(400).json({ error: `Cannot deliver ${qty} of "${item.productName}" — only ${pending} pending.` });
+      }
+
+      item.deliveredQty = (item.deliveredQty || 0) + qty;
+      item.deliveries.push({ qty, date: deliveryDate });
+
+      // Move physical stock now — the moment of truth for inventory.
+      if (item.product) {
+        const prod = await Product.findById(item.product);
+        if (prod) {
+          if (item.looseMode && prod.allowLoose && prod.looseConversion > 0) {
+            let looseNeeded = qty;
+            let currentLoose = prod.looseStock || 0;
+            let currentBags  = prod.stock || 0;
+            if (currentLoose >= looseNeeded) {
+              await Product.findByIdAndUpdate(item.product, { $set: { looseStock: currentLoose - looseNeeded } });
+            } else {
+              const stillNeeded = looseNeeded - currentLoose;
+              const bagsToOpen  = Math.ceil(stillNeeded / prod.looseConversion);
+              const looseAdded  = bagsToOpen * prod.looseConversion;
+              const newLoose    = looseAdded - stillNeeded;
+              await Product.findByIdAndUpdate(item.product, { $set: { stock: currentBags - bagsToOpen, looseStock: newLoose } });
+            }
+          } else if (item.location) {
+            await Product.findByIdAndUpdate(item.product,
+              { $inc: { stock: -qty, [`locationStock.$[el].stock`]: -qty } },
+              { arrayFilters: [{ 'el.location': item.location }] }
+            );
+          } else {
+            await Product.findByIdAndUpdate(item.product, { $inc: { stock: -qty } });
+          }
+        }
+      }
+    }
+
+    await invoice.save();
+    res.json(invoice);
+  } catch(err) { res.status(400).json({ error: err.message }); }
+});
+
 // PATCH record payment
 router.patch('/:id/payment', async (req, res) => {
   try {
@@ -252,11 +468,17 @@ router.delete('/:id', async (req, res) => {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
     const inv = await Invoice.findById(req.params.id);
     if (!inv) return res.status(404).json({ error:'Not found' });
-    // Restore stock
+    // Restore stock — only the DELIVERED portion was ever deducted, so only restore that much.
+    // Bookings/Proformas never touched stock at all (deliveredQty is always 0 for them).
     for (const item of inv.items||[]) {
-      if (item.product) await Product.findByIdAndUpdate(item.product, { $inc: { stock: item.qty } });
+      const deliveredAmount = item.deliveredQty || 0;
+      if (item.product && deliveredAmount > 0) {
+        await Product.findByIdAndUpdate(item.product, { $inc: { stock: deliveredAmount } });
+      }
     }
-    if (inv.customer && inv.balance > 0) await Customer.findByIdAndUpdate(inv.customer, { $inc: { balance: -inv.balance } });
+    if (inv.type === 'invoice' && inv.customer && inv.balance > 0) {
+      await Customer.findByIdAndUpdate(inv.customer, { $inc: { balance: -inv.balance } });
+    }
     await Ledger.deleteMany({ sourceId:inv._id, sourceType:'invoice' });
     await Invoice.findByIdAndDelete(req.params.id);
     res.json({ message:'Deleted' });

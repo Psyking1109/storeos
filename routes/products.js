@@ -29,6 +29,46 @@ router.get('/meta/categories', requireAuth, async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ══════════════════════════════════════════════════════════════════
+// Batch commitments summary — powers the Inventory table's "Available
+// for Sale", "Ordered", and "Invoiced – Undelivered" columns without
+// N+1 queries. Must be defined BEFORE /:id or Express would treat
+// "commitments-summary" as an :id value.
+// ══════════════════════════════════════════════════════════════════
+router.get('/commitments-summary', requireAuth, async (req, res) => {
+  try {
+    const Invoice = require('../models/Invoice');
+
+    // Ordered = total qty on OPEN (not-yet-converted) bookings/proformas, per product
+    const orderedAgg = await Invoice.aggregate([
+      { $match: { type: { $in: ['booking','proforma'] }, converted: { $ne: true } } },
+      { $unwind: '$items' },
+      { $group: { _id: '$items.product', ordered: { $sum: '$items.qty' } } }
+    ]);
+
+    // Invoiced-undelivered = sum of pendingQty (qty - deliveredQty) across confirmed invoices, per product
+    const invoicedAgg = await Invoice.aggregate([
+      { $match: { type: 'invoice' } },
+      { $unwind: '$items' },
+      { $match: { $expr: { $gt: ['$items.qty', { $ifNull: ['$items.deliveredQty', 0] }] } } },
+      { $group: { _id: '$items.product', undelivered: { $sum: { $subtract: ['$items.qty', { $ifNull: ['$items.deliveredQty', 0] }] } } } }
+    ]);
+
+    const summary = {};
+    for (const row of orderedAgg) {
+      if (!row._id) continue;
+      summary[row._id.toString()] = { ordered: row.ordered, invoicedUndelivered: 0 };
+    }
+    for (const row of invoicedAgg) {
+      if (!row._id) continue;
+      const key = row._id.toString();
+      if (!summary[key]) summary[key] = { ordered: 0, invoicedUndelivered: 0 };
+      summary[key].invoicedUndelivered = row.undelivered;
+    }
+    res.json(summary); // { [productId]: { ordered, invoicedUndelivered } }
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/:id', requireAuth, async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
@@ -95,18 +135,24 @@ router.get('/:id/movements', requireAuth, async (req, res) => {
     const Invoice  = require('../models/Invoice');
     const Purchase = require('../models/Purchase');
 
-    // Get invoice movements (sales)
-    const invoices = await Invoice.find({'items.product': req.params.id}).sort({date:-1}).limit(100);
+    // Get invoice movements (sales) — one row PER DELIVERY EVENT, since that's the
+    // moment stock actually moved. An invoice with 3 partial deliveries on different
+    // dates produces 3 separate movement rows here, each dated correctly.
+    const invoices = await Invoice.find({'items.product': req.params.id, type: 'invoice'}).sort({date:-1}).limit(100);
     const sales = [];
     for (const inv of invoices) {
       for (const item of inv.items) {
         if (item.product?.toString() === req.params.id) {
-          sales.push({
-            type: 'sale', date: inv.date, ref: inv.invoiceNo,
-            qty: item.qty, unit: item.unit,
-            looseMode: item.looseMode||false,
-            unitPrice: item.unitPrice, total: item.lineTotal,
-          });
+          const deliveryEvents = item.deliveries && item.deliveries.length ? item.deliveries : [];
+          for (const d of deliveryEvents) {
+            sales.push({
+              type: 'sale', date: d.date, ref: inv.invoiceNo,
+              qty: d.qty, unit: item.unit,
+              looseMode: item.looseMode||false,
+              unitPrice: item.unitPrice, total: d.qty * item.unitPrice,
+              pendingQty: item.qty - (item.deliveredQty || 0)
+            });
+          }
         }
       }
     }
@@ -129,6 +175,58 @@ router.get('/:id/movements', requireAuth, async (req, res) => {
     const movements = [...sales, ...purchased].sort((a,b)=>new Date(b.date)-new Date(a.date));
     res.json({ product, movements });
   } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET drill-down breakdown for a single product's Ordered / Invoiced-Undelivered totals
+router.get('/:id/commitments', requireAuth, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+    const Invoice = require('../models/Invoice');
+
+    // Open bookings/proformas for this product (not yet converted)
+    const openDocs = await Invoice.find({
+      type: { $in: ['booking','proforma'] },
+      converted: { $ne: true },
+      'items.product': req.params.id
+    }).sort({ date: -1 });
+
+    const ordered = [];
+    for (const doc of openDocs) {
+      for (const item of doc.items) {
+        if (item.product?.toString() === req.params.id) {
+          ordered.push({
+            invoiceId: doc._id, invoiceNo: doc.invoiceNo, type: doc.type,
+            customerName: doc.customerName, qty: item.qty, date: doc.date
+          });
+        }
+      }
+    }
+
+    // Confirmed invoices with an outstanding pending quantity for this product
+    const openInvoices = await Invoice.find({
+      type: 'invoice',
+      'items.product': req.params.id
+    }).sort({ date: -1 });
+
+    const invoiced = [];
+    for (const doc of openInvoices) {
+      for (const item of doc.items) {
+        if (item.product?.toString() === req.params.id) {
+          const pendingQty = item.qty - (item.deliveredQty || 0);
+          if (pendingQty > 0.0001) {
+            invoiced.push({
+              invoiceId: doc._id, invoiceNo: doc.invoiceNo,
+              customerName: doc.customerName,
+              invoicedQty: item.qty, deliveredQty: item.deliveredQty || 0, pendingQty,
+              date: doc.date
+            });
+          }
+        }
+      }
+    }
+
+    res.json({ ordered, invoiced });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 module.exports = router;

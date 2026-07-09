@@ -68,6 +68,7 @@ app.use('/api/invoice-types',  requireAuth, require('./routes/invoicetypes'));
 app.use('/api/cash-accounts',  requireAuth, require('./routes/cashaccounts'));
 app.use('/api/cash',           requireAuth, require('./routes/cash'));
 app.use('/api/dashboard',      requireAuth, require('./routes/dashboard'));
+app.use('/api/settings',       requireAuth, require('./routes/settings'));
 
 // Permission-gated routes
 app.use('/api/invoices',        requireAuth, requirePermission('invoices'),       require('./routes/invoices'));

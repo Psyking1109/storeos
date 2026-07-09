@@ -505,6 +505,30 @@ async function saveCat(){
   }catch(e){alert(e.message);}
 }
 async function delCat(id){if(!confirm('Delete this category?'))return;try{await api('DELETE','/categories/'+id);await loadSavedCats();}catch(e){alert(e.message);}}
+
+// ── Commitments summary (Ordered / Invoiced-Undelivered) for Inventory columns ──
+const commitSummary=ref({});
+async function loadCommitSummary(){try{commitSummary.value=await api('GET','/products/commitments-summary');}catch(e){}}
+function orderedQty(p){return commitSummary.value[p._id]?.ordered||0;}
+function undeliveredQty(p){return commitSummary.value[p._id]?.invoicedUndelivered||0;}
+function availForSale(p){return (p.stock||0)-undeliveredQty(p);}
+
+// ── Drill-down modal for Ordered / Invoiced-Undelivered totals ──
+const mCommitDrill=ref(false);const commitDrillTitle=ref('');const commitDrillRows=ref([]);const commitDrillKind=ref('');
+async function openCommitDrill(p, kind){
+  commitDrillKind.value=kind;
+  commitDrillTitle.value=(kind==='ordered'?'Ordered (Booked/Proforma) — ':'Invoiced – Undelivered — ')+p.name;
+  try{
+    const data=await api('GET','/products/'+p._id+'/commitments');
+    commitDrillRows.value=kind==='ordered'?data.ordered:data.invoiced;
+    mCommitDrill.value=true;
+  }catch(e){alert(e.message);}
+}
+function openCommitDrillDoc(row){
+  mCommitDrill.value=false;
+  api('GET','/invoices/'+row.invoiceId).then(doc=>openInvDetail(doc)).catch(e=>alert(e.message));
+}
+
 const prodsByCategory=computed(()=>{
   const groups={};
   for(const p of prods.value){
@@ -544,7 +568,7 @@ const poDetSrch=ref('');const poDetSrchRes=ref([]);const poDetNewLC=ref({});
 const mInvDetail=ref(false);const invDet=ref({});
 const mReturn=ref(false);const retInv=ref({});const retItems=ref([]);const retTotal=ref(0);const retReason=ref('');const retDate=ref(new Date().toISOString().slice(0,10));const retRestock=ref(true);
 const poFinFilt=ref('');
-const psrch=ref('');const ifilt=ref('');const pofilt=ref('');
+const psrch=ref('');const ifilt=ref('');const pofilt=ref('');const docTypeFilt=ref('invoice');
 const exFrom=ref(new Date(d.getFullYear(),d.getMonth(),1).toISOString().slice(0,10));const exTo=ref(today);
 const suppHist=ref({});
 const stmtAcc=ref(null);const stmtFr=ref('');const stmtTo=ref('');const stmtRows=ref([]);
@@ -576,7 +600,7 @@ const eBAcc=ref({});const eBTx=ref({});const eChq=ref({});const chqStsData=ref({
 const payDoc=ref(null);const payAmt=ref(0);const payMode=ref('cash');const payCashAcc=ref('');const payBankAcc=ref('');const payChqNo=ref('');const payDate=ref(today);
 const iSrch=ref('');const iSrchRes=ref([]);const iSrchLoading=ref(false);const poSrch=ref('');const poSrchRes=ref([]);
 const invNoPreview=ref('');
-function fInv(){return{customer:'',customerName:'Walk-in Customer',customerTin:'',date:today,dueDate:'',taxInclusive:false,taxInvoice:false,invoiceType:'',invoiceTypeName:'',invTypeTaxConfig:[],toggledTaxes:{},items:[],subtotal:0,taxAmount:0,taxBreakdown:[],discount:0,total:0,paid:0,balance:0,paymentMode:'cash',cashAccount:'',bankAccount:'',chequeNo:'',notes:''};} 
+function fInv(){return{type:'invoice',customer:'',customerName:'Walk-in Customer',customerTin:'',date:today,dueDate:'',taxInclusive:false,taxInvoice:false,invoiceType:'',invoiceTypeName:'',invTypeTaxConfig:[],toggledTaxes:{},items:[],subtotal:0,taxAmount:0,taxBreakdown:[],discount:0,total:0,paid:0,balance:0,paymentMode:'cash',cashAccount:'',bankAccount:'',chequeNo:'',notes:''};} 
 const nInv=ref(fInv());
 function fPO(type){return{purchaseType:type||'local',supplier:'',supplierName:'',date:today,currency:'USD',exchangeRate:300,items:[],landingCosts:[],subtotalForeign:0,subtotal:0,taxAmount:0,landingCostTotal:0,total:0,paid:0,balance:0,paymentMode:'cash',updateStock:true,taxInclusive:false,notes:''};} 
 const nPO=ref(fPO());
@@ -592,11 +616,11 @@ const bs=s=>({pending:'bpend',partial:'bpart',paid:'bpaid',overdue:'bover',draft
 const chqSC=s=>({pending:'bpend',deposited:'bpart',cleared:'bpaid',bounced:'bover',cancelled:'bdrft'}[s]||'bdrft');
 const chqDue=c=>['pending','deposited'].includes(c.status)&&new Date(c.dueDate)<=new Date(Date.now()+3*86400000);
 async function loadDash(){try{dash.value=await api('GET','/dashboard');}catch(e){}}
-async function loadProds(){try{prods.value=await api('GET','/products?search='+psrch.value);}catch(e){}}
+async function loadProds(){try{prods.value=await api('GET','/products?search='+psrch.value);loadCommitSummary();}catch(e){}}
 async function loadCats(){try{cats.value=await api('GET','/products/meta/categories');}catch(e){}}
 async function loadTxRates(){try{txRates.value=await api('GET','/tax');}catch(e){}}
 async function loadAllTxRates(){try{allTxRates.value=await api('GET','/tax/all');}catch(e){}}
-async function loadInvs(){try{invs.value=await api('GET','/invoices?status='+ifilt.value);}catch(e){}}
+async function loadInvs(){try{invs.value=await api('GET','/invoices?status='+ifilt.value+'&type='+docTypeFilt.value);}catch(e){}}
 async function loadPOs(){try{let q='/purchases?purchaseType='+pofilt.value;if(poFinFilt.value==='open')q+='&isFinalized=false';if(poFinFilt.value==='finalized')q+='&isFinalized=true';pos.value=await api('GET',q);}catch(e){}}
 async function loadCusts(){try{custs.value=await api('GET','/customers');}catch(e){}}
 async function loadSupps(){try{supps.value=await api('GET','/suppliers');}catch(e){}}
@@ -605,6 +629,29 @@ async function loadXfers(){try{xfers.value=await api('GET','/cash-accounts/trans
 async function loadExps(){try{let q='/expenses';const p=[];if(exFrom.value)p.push('from='+exFrom.value);if(exTo.value)p.push('to='+exTo.value);if(expAccFilter.value)p.push('ledgerAccount='+encodeURIComponent(expAccFilter.value));if(p.length)q+='?'+p.join('&');exps.value=await api('GET',q);}catch(e){}}
 async function loadExpCats(){try{expCats.value=await api('GET','/expenses/categories');}catch(e){}}
 async function loadInvTypes(){try{invTypes.value=await api('GET','/invoice-types');}catch(e){}}
+
+// ── IRD Gazette Numbering settings (Invoice Settings page) ──
+const irdSettings=ref({irdNumberingEnabled:false,irdBranchCode:'',preview:''});
+const irdSettingsErr=ref('');const savingIrd=ref(false);let _irdPreviewTimer=null;
+async function loadIrdSettings(){try{irdSettings.value=await api('GET','/settings');}catch(e){}}
+function previewIrdNumber(){
+  clearTimeout(_irdPreviewTimer);
+  _irdPreviewTimer=setTimeout(async()=>{
+    try{
+      const r=await api('GET','/settings?branchCode='+encodeURIComponent(irdSettings.value.irdBranchCode||''));
+      irdSettings.value.preview=r.preview;
+    }catch(e){}
+  },300);
+}
+async function saveIrdSettings(){
+  savingIrd.value=true;irdSettingsErr.value='';
+  try{
+    const r=await api('PUT','/settings',{irdNumberingEnabled:irdSettings.value.irdNumberingEnabled,irdBranchCode:irdSettings.value.irdBranchCode});
+    irdSettings.value=r;
+    await loadIrdSettings();
+  }catch(e){irdSettingsErr.value=e.message;}
+  savingIrd.value=false;
+}
 async function loadLocs(){try{locs.value=await api('GET','/locations');}catch(e){}}
 async function loadBaccs(){try{baccs.value=await api('GET','/banking/accounts');}catch(e){}}
 async function loadBTxs(){try{const q=new URLSearchParams(Object.fromEntries(Object.entries(btf.value).filter(([,v])=>v)));btxs.value=await api('GET','/banking/transactions?'+q);}catch(e){}}
@@ -651,7 +698,7 @@ watch(pg,async p=>{
   if(p==='taxr')loadTaxRpt();
   if(p==='taxm')loadTaxMonthly();
   if(p==='txrt')loadAllTxRates();
-  if(p==='invt')loadInvTypes();
+  if(p==='invt'){loadInvTypes();loadIrdSettings();}
   if(p==='loc'){loadLocs();loadProds();}
   if(p==='usr')loadUsers();
 });
@@ -843,7 +890,7 @@ function calcInv(){try{
     :(sub+totCustTax)-(nInv.value.discount||0);
   nInv.value.balance=nInv.value.total-(nInv.value.paid||0);
 }catch(e){console.error('calcInv error:',e);}}
-function openNewInv(){nInv.value=fInv();invNoPreview.value='';iSrch.value='';iSrchRes.value=[];mErr.value='';loadCusts();loadTxRates();loadInvTypes();loadCas();loadBaccs();mInv.value=true;}
+function openNewInv(docType){nInv.value=fInv();if(docType)nInv.value.type=docType;invNoPreview.value='';iSrch.value='';iSrchRes.value=[];mErr.value='';loadCusts();loadTxRates();loadInvTypes();loadCas();loadBaccs();mInv.value=true;}
 async function saveInv(){if(!nInv.value.items.length){mErr.value='Add at least one item';return;}saving.value=true;mErr.value='';try{await api('POST','/invoices',nInv.value);mInv.value=false;loadInvs();}catch(e){mErr.value=e.message;}saving.value=false;}
 async function delInv(id){if(!confirm('Delete invoice?'))return;try{await api('DELETE','/invoices/'+id);loadInvs();}catch(e){alert(e.message);}}
 async function srchProdsPO(){if(!poSrch.value.trim()){poSrchRes.value=[];return;}try{poSrchRes.value=(await api('GET','/products?search='+poSrch.value)).slice(0,8);}catch(e){}}
@@ -1001,6 +1048,44 @@ function applyInvTypeTaxesToItems(){
 
 // ── INVOICE DETAIL ─────────────────────────────────────────────────────────
 function openInvDetail(inv){invDet.value={...inv};mInvDetail.value=true;}
+
+// ── DOCUMENT FLOW: Booking/Proforma → Invoice conversion ──────────────────
+const converting=ref(false);
+async function convertToInvoice(doc){
+  if(!confirm(`Convert ${doc.invoiceNo} into a final Invoice? This cannot be undone.`))return;
+  converting.value=true;
+  try{
+    const newInv=await api('POST','/invoices/'+doc._id+'/convert',{});
+    mInvDetail.value=false;
+    loadInvs();
+    // Show the newly created invoice right away
+    setTimeout(()=>openInvDetail(newInv),150);
+  }catch(e){alert(e.message);}
+  converting.value=false;
+}
+
+// ── DELIVERY: record partial/full delivery against an invoice's line items ─
+const mDelivery=ref(false);const delivering=ref(false);const delItems=ref([]);const delDoc=ref({});
+function openDeliveryModal(inv){
+  delDoc.value=inv;
+  delItems.value=(inv.items||[]).map(it=>{
+    const pending=it.pendingQty!==undefined?it.pendingQty:(it.qty-(it.deliveredQty||0));
+    return {_id:it._id,productName:it.productName,qty:it.qty,deliveredQty:it.deliveredQty||0,pendingQty:pending,deliverNow:pending};
+  }).filter(it=>it.pendingQty>0);
+  mDelivery.value=true;
+}
+async function saveDelivery(){
+  delivering.value=true;
+  try{
+    const deliveries=delItems.value.filter(it=>it.deliverNow>0).map(it=>({itemId:it._id,qty:Number(it.deliverNow)}));
+    if(!deliveries.length){alert('Enter a quantity to deliver for at least one item.');delivering.value=false;return;}
+    const updated=await api('POST','/invoices/'+delDoc.value._id+'/deliver',{deliveries});
+    mDelivery.value=false;
+    loadInvs();
+    invDet.value=updated;
+  }catch(e){alert(e.message);}
+  delivering.value=false;
+}
 
 // ── PO DETAIL: Payment Stages + Goods Received ────────────────────────────
 async function finalizePO(){
@@ -1174,7 +1259,7 @@ pg,saving,mErr,dash,prods,invs,pos,custs,supps,cats,txRates,allTxRates,taxRpt,us
 cas,xfers,exps,exSumm,expCats,baccs,btxs,btab,btf,chqs,chqf,
 ledDays,trial,trialGrp,ledV,ledFr,ledTo,ledAccList,ledAcc,accLedRows,
 txFr,txTo,txYear,txYears,curYear,curMonth,txMonthly,rpt,rptDate,rptTab,
-psrch,ifilt,pofilt,exFrom,exTo,suppHist,stmtAcc,stmtFr,stmtTo,stmtRows,
+psrch,ifilt,pofilt,docTypeFilt,exFrom,exTo,suppHist,stmtAcc,stmtFr,stmtTo,stmtRows,
 payDoc,payAmt,payMode,payCashAcc,payBankAcc,payChqNo,payDate,
 iSrch,iSrchRes,iSrchLoading,poSrch,poSrchRes,invNoPreview,nInv,nPO,
 mProd,mStk,mCust,mSupp,mSuppH,mCA,mXfer,mExp,mPay,mTxRate,mInvType,mLoc,mUser,mBAcc,mBTx,mStmt,mChq,mChqSts,mInv,mPO,
@@ -1185,11 +1270,13 @@ previewInvNo,onCustChange,srchProds,addFirstProd,addProdToInv,addTaxToLine,calcI
 srchProdsPO,addProdToPO,addTaxToPOLine,addTaxToLC,calcPO,openNewPO,savePO,
 openCust,saveCust,openSupp,saveSupp,viewSuppHist,
 openCA,saveCA,openXfer,saveXfer,openExp,saveExp,delExp,openPay,savePay,
-openBAcc,saveBAcc,openBTx,saveBTx,delBTx,viewStmt,loadStmt,loadBTxs,mStockMovement,stockMovementData,viewStockMovement,mPODetail,poDet,newStage,openPODetail,savePayStage,delPayStage,toggleGoodsReceived,finalizePO,savePONotes,poFinFilt,poDetSrch,poDetSrchRes,poDetSrchProds,poDetAddItem,poDetAddManualItem,poDetRemoveItem,poDetAddLC,poDetRemoveLC,calcPodet:calcPoDet,savePoDetItems,poDetAddTaxToItem,mInvDetail,invDet,openInvDetail,mReturn,retInv,retItems,retTotal,retReason,retDate,retRestock,openReturn,calcReturnTotal,saveReturn,
+openBAcc,saveBAcc,openBTx,saveBTx,delBTx,viewStmt,loadStmt,loadBTxs,mStockMovement,stockMovementData,viewStockMovement,mPODetail,poDet,newStage,openPODetail,savePayStage,delPayStage,toggleGoodsReceived,finalizePO,savePONotes,poFinFilt,poDetSrch,poDetSrchRes,poDetSrchProds,poDetAddItem,poDetAddManualItem,poDetRemoveItem,poDetAddLC,poDetRemoveLC,calcPodet:calcPoDet,savePoDetItems,poDetAddTaxToItem,mInvDetail,invDet,openInvDetail,converting,convertToInvoice,mDelivery,delivering,delItems,delDoc,openDeliveryModal,saveDelivery,mReturn,retInv,retItems,retTotal,retReason,retDate,retRestock,openReturn,calcReturnTotal,saveReturn,
 openChq,saveChq,qChqSts,saveChqSts,delChq,
 openTxRate,saveTxRate,disableTxRate,openInvType,saveInvType,delInvType,mTaxDetail,taxDetailData,openTaxDetail,
 openLoc,saveLoc,openUser,saveUser,disableUser,viewCashLedger,loadCashLedger,cashLedgerAcc,cashLedRows,cashLedFr,cashLedTo,selectedCashRow,mEditCashEntry,eCashEntry,editCashEntry,saveCashEntry,delCashEntry,addTaxToInvType,applyInvTypeTaxConfig,toggleInvTypeTax,
 loadLed,loadAccLed,loadTaxRpt,loadTaxMonthly,loadRpt,expandedRptRows,toggleRptRow,loadInvs,loadExps,mCat,eCat,savedCats,pCatFilter,saveCat,delCat,prodsByCategory,mQuickProd,openQuickProd,saveQuickProd,toggleLooseMode,
+commitSummary,loadCommitSummary,orderedQty,undeliveredQty,availForSale,mCommitDrill,commitDrillTitle,commitDrillRows,commitDrillKind,openCommitDrill,openCommitDrillDoc,
+irdSettings,irdSettingsErr,savingIrd,loadIrdSettings,previewIrdNumber,saveIrdSettings,
   isDark,toggleTheme,mCoSettings,coSettings,saveCoSettings,
   mPrintInv,printInv,printTpl,printColor,printShowTax,printShowNotes,invPreviewStyle,printInvoice,doPrint,
   ledgerAccs,mLedgerAcc,eLedgerAcc,mJournalEntry,eJournalEntry,openJournalEntry,saveJournalEntry,mQuickJournal,eQuickJournal,qjAccountGroups,openQuickJournal,onQJTypeChange,onQJDebitChange,onQJCreditChange,saveQuickJournal,mLedgerAccDetail,ledgerAccDetail,mEditLedgerEntry,eEditLedgerEntry,editLedgerEntry,saveLedgerEntry,delLedgerEntry,ledgerAccsByType,loadLedgerAccs,openLedgerAcc,saveLedgerAcc,delLedgerAcc,viewLedgerAcc,trialBalance,loadTrialBalance,expAccFilter,onLedgerAccChange};

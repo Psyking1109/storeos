@@ -18,7 +18,7 @@ router.get('/:id', async (req, res) => {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
     const customer = await Customer.findById(req.params.id);
     if (!customer) return res.status(404).json({ error: 'Not found' });
-    const invoices = await Invoice.find({ customer: req.params.id }).sort({ date: -1 }).limit(20);
+    const invoices = await Invoice.find({ customer: req.params.id, type: 'invoice' }).sort({ date: -1 }).limit(20);
     res.json({ customer, invoices });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
