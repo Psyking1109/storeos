@@ -1933,6 +1933,10 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           </select>
         </div>
         <div class="fl" v-if="eInvType.prefix"><label>Preview</label><div class="fc" style="background:var(--sur2);font-family:var(--fm);color:var(--acc)">{{eInvType.prefix||'PREFIX'}}-{{todayStr}}-{{String(1).padStart(eInvType.padLength||4,'0')}}</div></div>
+        <div class="fl" v-if="irdSettings.irdNumberingEnabled" style="flex-direction:row;align-items:center;gap:8px;margin-top:2px">
+          <input type="checkbox" v-model="eInvType.useIrdNumbering" id="typeUseIrdChk" style="width:16px;height:16px"/>
+          <label for="typeUseIrdChk" style="margin:0;font-size:12px">Use IRD Gazette numbering format for invoices created under this type</label>
+        </div>
         <!-- Tax Configuration -->
         <div class="dvd"></div>
         <div style="font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:8px">Tax Configuration for this Invoice Type</div>
@@ -2702,8 +2706,9 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
   <div class="mb">
     <div v-if="mErr" class="al al-d">{{mErr}}</div>
     <div class="al al-i" style="margin-bottom:12px;font-size:12px">Select items and quantities to return. A credit note will be created and stock will be restocked automatically.</div>
+    <div v-if="!retItems.length" class="al al-w">Every item on this invoice has already been fully returned.</div>
     <!-- Items to return -->
-    <table style="width:100%;border-collapse:collapse;margin-bottom:14px">
+    <table v-else style="width:100%;border-collapse:collapse;margin-bottom:14px">
       <thead><tr style="background:rgba(255,255,255,.04)">
         <th style="padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Product</th>
         <th style="padding:8px 10px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Invoiced</th>
@@ -2714,12 +2719,13 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       <tbody>
         <tr v-for="(item,i) in retItems" :key="i">
           <td style="padding:8px 10px;border-bottom:1px solid var(--brd);color:var(--txt);font-weight:500">{{item.productName}}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right;font-family:var(--fm);color:var(--tx2)">{{item.origQty}} {{item.unit}}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right;font-family:var(--fm);color:var(--tx2)">{{item.invoicedQty}} {{item.unit}}</td>
           <td style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right;font-family:var(--fm)">{{f(item.unitPrice)}}</td>
           <td style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right">
-            <input v-model="item.returnQty" type="number" min="0" :max="item.origQty" step="1" class="fc" style="width:80px;padding:4px 8px;text-align:right;font-family:var(--fm)" @input="calcReturnTotal" @blur="item.returnQty=+item.returnQty||0"/>
+            <input v-model="item.returnQty" type="number" min="0" :max="item.origQty" step="1" class="fc" style="width:80px;padding:4px 8px;text-align:right;font-family:var(--fm)" @input="calcReturnTotal" @blur="item.returnQty=Math.min(+item.returnQty||0,item.origQty)"/>
+            <div style="font-size:10px;color:var(--tx3);margin-top:2px">max {{item.origQty}}</div>
           </td>
-          <td style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right;font-family:var(--fm);font-weight:700;color:var(--acc)">{{f(item.returnQty?(item.lineTotal/item.origQty*item.returnQty):0)}}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right;font-family:var(--fm);font-weight:700;color:var(--acc)">{{f(item.returnQty?(item.lineTotal/item.invoicedQty*item.returnQty):0)}}</td>
         </tr>
       </tbody>
       <tfoot>

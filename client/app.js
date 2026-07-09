@@ -964,7 +964,7 @@ async function delChq(id){if(!confirm('Delete cheque?'))return;try{await api('DE
 function openTxRate(t){eTxRate.value=t?{...t,reducedBy:[...(t.reducedBy||[])],businessTax:t.businessTax||false}:{code:'',name:'',rate:0,type:'both',appliesTo:'all',creditable:false,reducedBy:[],businessTax:false,description:''};mErr.value='';loadAllTxRates();mTxRate.value=true;}
 async function saveTxRate(){if(!eTxRate.value.code||!eTxRate.value.name){mErr.value='Code and name required';return;}saving.value=true;mErr.value='';try{if(eTxRate.value._id)await api('PUT','/tax/'+eTxRate.value._id,eTxRate.value);else{eTxRate.value.code=eTxRate.value.code.toUpperCase().trim();await api('POST','/tax',eTxRate.value);}mTxRate.value=false;loadAllTxRates();loadTxRates();}catch(e){mErr.value=e.message;}saving.value=false;}
 async function disableTxRate(id){if(!confirm('Disable this tax rate?'))return;try{await api('DELETE','/tax/'+id);loadAllTxRates();loadTxRates();}catch(e){alert(e.message);}}
-function openInvType(t){eInvType.value=t?{...t}:{name:'',prefix:'',resetCycle:'daily',padLength:4,notes:''};mErr.value='';mInvType.value=true;}
+function openInvType(t){eInvType.value=t?{...t}:{name:'',prefix:'',resetCycle:'daily',padLength:4,notes:'',useIrdNumbering:true};mErr.value='';loadIrdSettings();mInvType.value=true;}
 async function saveInvType(){if(!eInvType.value.name||!eInvType.value.prefix){mErr.value='Name and prefix required';return;}saving.value=true;mErr.value='';try{if(eInvType.value._id)await api('PUT','/invoice-types/'+eInvType.value._id,eInvType.value);else await api('POST','/invoice-types',eInvType.value);mInvType.value=false;loadInvTypes();}catch(e){mErr.value=e.message;}saving.value=false;}
 async function delInvType(id){if(!confirm('Delete?'))return;try{await api('DELETE','/invoice-types/'+id);loadInvTypes();}catch(e){alert(e.message);}}
 function openLoc(l){eLoc.value=l?{...l}:{name:'',code:'',description:''};mLoc.value=true;}
@@ -1217,11 +1217,15 @@ async function toggleGoodsReceived(){
 // ── INVOICE RETURNS ─────────────────────────────────────────────────────────
 function openReturn(inv){
   retInv.value={...inv};
-  retItems.value=(inv.items||[]).map(item=>({
-    ...item,
-    origQty: item.qty,
-    returnQty: item.qty, // default to full return
-  }));
+  retItems.value=(inv.items||[]).map(item=>{
+    const remaining = item.returnableQty!==undefined ? item.returnableQty : (item.qty-(item.returnedQty||0));
+    return {
+      ...item,
+      invoicedQty: item.qty,   // original invoiced qty — shown in the "Invoiced" column
+      origQty: remaining,      // remaining returnable qty — used for the max/ratio math below
+      returnQty: remaining,    // default to returning everything still returnable
+    };
+  }).filter(item=>item.origQty>0); // hide lines that have already been fully returned
   retReason.value='';
   retDate.value=new Date().toISOString().slice(0,10);
   retRestock.value=true;
@@ -1232,7 +1236,7 @@ function openReturn(inv){
 function calcReturnTotal(){
   retTotal.value=retItems.value.reduce((s,item)=>{
     if(!item.returnQty||item.returnQty<=0)return s;
-    const ratio=item.returnQty/item.origQty;
+    const ratio=item.returnQty/item.invoicedQty;
     return s+(item.lineTotal||0)*ratio;
   },0);
 }

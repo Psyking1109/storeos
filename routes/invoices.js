@@ -20,9 +20,15 @@ async function generateBookingOrProformaNumber(type) {
 }
 
 async function generateInvoiceNumber(typeId, date) {
-  // ── Optional IRD Gazette numbering (YYMMM_QQQQ_XXXXX) — only applies to final Invoices, only when enabled ──
+  // ── Optional IRD Gazette numbering (YYMMM_QQQQ_XXXXX) — only applies to final Invoices, only when
+  // the global setting is enabled AND the selected Invoice Type has it turned on (default: on) ──
   const settings = await Settings.getSingleton();
-  if (settings.irdNumberingEnabled && settings.irdBranchCode) {
+  let useIrd = true;
+  if (typeId) {
+    const typeDoc = await InvoiceType.findById(typeId);
+    if (typeDoc && typeDoc.useIrdNumbering === false) useIrd = false;
+  }
+  if (settings.irdNumberingEnabled && settings.irdBranchCode && useIrd) {
     const seq = await Counter.next(`ird:${settings.irdBranchCode}`); // atomic — safe under concurrent invoice creation
     const serial = String(seq).padStart(5, '0'); // numeric only, zero-padded (matches WINPAC example: 26JUL_HQ01_00001)
     const num = buildIrdNumber(date, settings.irdBranchCode, serial);
@@ -122,6 +128,7 @@ router.get('/', async (req, res) => {
     // the frontend explicitly asks for bookings/proformas via ?type=booking / ?type=proforma / ?type=all
     if (type && type !== 'all') q.type = type;
     else if (!type) q.type = 'invoice';
+    else q.type = { $ne: 'credit_note' }; // 'all' still means "the three document-flow types", not credit notes
     if (converted !== undefined) q.converted = converted === 'true';
     res.json(await Invoice.find(q).sort({ date:-1, createdAt:-1 }));
   } catch(err) { res.status(500).json({ error:err.message }); }
@@ -435,7 +442,141 @@ router.post('/:id/deliver', async (req, res) => {
   } catch(err) { res.status(400).json({ error: err.message }); }
 });
 
-// PATCH record payment
+// ══════════════════════════════════════════════════════════════════
+// RETURN — process a return against a confirmed invoice. Creates a
+// credit note (type: 'credit_note'), optionally restocks the returned
+// quantities, and reverses the appropriate share of revenue/receivable.
+// Body: { items: [{ itemId, qty }], reason?, date?, restockItems? }
+// ══════════════════════════════════════════════════════════════════
+router.post('/:id/return', async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
+    const invoice = await Invoice.findById(req.params.id);
+    if (!invoice) return res.status(404).json({ error: 'Not found' });
+    if (invoice.type !== 'invoice') return res.status(400).json({ error: 'Only confirmed invoices can be returned.' });
+
+    const { items, reason, date, restockItems } = req.body;
+    if (!Array.isArray(items) || !items.length) {
+      return res.status(400).json({ error: 'items array is required, e.g. [{ itemId, qty }]' });
+    }
+    const returnDate = date ? new Date(date) : new Date();
+    const doRestock = restockItems !== false;
+
+    const creditItems = [];
+    let subtotal = 0, taxAmount = 0;
+    const breakdown = {}; // taxCode -> { taxCode, taxName, rate, amount, businessTax }
+
+    for (const r of items) {
+      const qty = Number(r.qty);
+      if (!qty || qty <= 0) continue;
+      const item = invoice.items.id(r.itemId);
+      if (!item) return res.status(400).json({ error: `Line item ${r.itemId} not found on this invoice.` });
+      const returnable = item.qty - (item.returnedQty || 0);
+      if (qty > returnable + 0.0001) {
+        return res.status(400).json({ error: `Cannot return ${qty} of "${item.productName}" — only ${returnable} available to return.` });
+      }
+
+      const ratio = qty / item.qty;
+      const lineSubtotal = (item.lineSubtotal || 0) * ratio;
+      const lineTax      = (item.taxAmount || 0) * ratio;
+      const lineTotal     = (item.lineTotal || 0) * ratio;
+      subtotal += lineSubtotal;
+      taxAmount += lineTax;
+
+      for (const tl of item.taxLines || []) {
+        const key = tl.taxCode;
+        if (!breakdown[key]) breakdown[key] = { taxCode: tl.taxCode, taxName: tl.taxName, rate: tl.rate, amount: 0 };
+        breakdown[key].amount += (tl.amount || 0) * ratio;
+      }
+
+      creditItems.push({
+        product: item.product, productName: item.productName, sku: item.sku,
+        qty, unit: item.unit, unitPrice: item.unitPrice, looseMode: item.looseMode,
+        taxLines: (item.taxLines || []).map(tl => ({ ...tl.toObject?.() ?? tl, amount: (tl.amount || 0) * ratio })),
+        taxAmount: lineTax, lineSubtotal, lineTotal,
+        location: item.location, locationName: item.locationName
+      });
+
+      // Mark returned on the original invoice line
+      item.returnedQty = (item.returnedQty || 0) + qty;
+
+      // Restock — mirrors (in reverse) the loose/full-unit stock-deduction logic used on invoice creation/delivery
+      if (doRestock && item.product) {
+        const prod = await Product.findById(item.product);
+        if (prod) {
+          if (item.looseMode && prod.allowLoose && prod.looseConversion > 0) {
+            // Returned qty is in LOOSE units (e.g. kg). Add it back to the loose remainder, then
+            // convert any full-bag-equivalents that accumulate back into whole-bag stock, so
+            // looseStock always stays a partial-bag remainder (mirrors the sale-time logic).
+            const currentLoose   = prod.looseStock || 0;
+            const totalLooseBack = currentLoose + qty;
+            const bagsFromLoose  = Math.floor(totalLooseBack / prod.looseConversion);
+            const newLoose       = totalLooseBack - (bagsFromLoose * prod.looseConversion);
+            await Product.findByIdAndUpdate(item.product, {
+              $inc: { stock: bagsFromLoose },
+              $set: { looseStock: newLoose }
+            });
+          } else if (item.location) {
+            await Product.findByIdAndUpdate(item.product,
+              { $inc: { stock: qty, [`locationStock.$[el].stock`]: qty } },
+              { arrayFilters: [{ 'el.location': item.location }] }
+            );
+          } else {
+            await Product.findByIdAndUpdate(item.product, { $inc: { stock: qty } });
+          }
+        }
+      }
+    }
+
+    if (!creditItems.length) return res.status(400).json({ error: 'Select at least one item to return' });
+
+    const total = subtotal + taxAmount;
+
+    // Ensure a unique credit-note number even if this invoice is returned more than once
+    let creditNoteNo = `RET-${invoice.invoiceNo}`;
+    if (await Invoice.findOne({ invoiceNo: creditNoteNo })) {
+      let n = 2;
+      while (await Invoice.findOne({ invoiceNo: `${creditNoteNo}-${n}` })) n++;
+      creditNoteNo = `${creditNoteNo}-${n}`;
+    }
+
+    const creditNote = new Invoice({
+      type: 'credit_note',
+      invoiceNo: creditNoteNo,
+      customer: invoice.customer,
+      customerName: invoice.customerName,
+      date: returnDate,
+      items: creditItems,
+      subtotal, taxAmount, taxBreakdown: Object.values(breakdown),
+      total,
+      paid: 0, balance: 0, status: 'paid',
+      notes: reason || '',
+      creditNoteFor: invoice._id,
+      creditNoteForNo: invoice.invoiceNo,
+      returnReason: reason || '',
+      restocked: doRestock
+    });
+    await creditNote.save();
+    await invoice.save();
+
+    // Reverse the customer's receivable balance for the returned amount
+    if (invoice.customer) {
+      await Customer.findByIdAndUpdate(invoice.customer, { $inc: { balance: -total } });
+    }
+
+    // Ledger: reverse revenue/receivable, and reverse the proportional tax payables
+    const le = [
+      { date: returnDate, account:'Sales Returns', accountType:'revenue', debit:subtotal, credit:0, description:`Return against ${invoice.invoiceNo}`, reference:creditNoteNo, sourceType:'invoice', sourceId:creditNote._id },
+      { date: returnDate, account:'Accounts Receivable', accountType:'receivable', debit:0, credit:total, description:`Return against ${invoice.invoiceNo}`, reference:creditNoteNo, sourceType:'invoice', sourceId:creditNote._id },
+    ];
+    for (const tl of Object.values(breakdown).filter(t => t.amount)) {
+      le.push({ date: returnDate, account:tl.taxCode+' Payable', accountType:'payable', debit:tl.amount, credit:0, description:`${tl.taxCode} reversal on return against ${invoice.invoiceNo}`, reference:creditNoteNo, sourceType:'invoice', sourceId:creditNote._id });
+    }
+    await Ledger.insertMany(le);
+
+    res.status(201).json(creditNote);
+  } catch(err) { res.status(400).json({ error: err.message }); }
+});
 router.patch('/:id/payment', async (req, res) => {
   try {
     const { amount, paymentMode, cashAccount, bankAccount, chequeNo, date } = req.body;

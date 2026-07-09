@@ -33,6 +33,9 @@ const productSchema = new mongoose.Schema({
   active:           { type: Boolean, default: true }
 }, { timestamps: true });
 
+productSchema.index({ name: 1 });
+productSchema.index({ category: 1, active: 1 });
+
 // Calculate looseSellingPrice if not set
 productSchema.pre('save', function(next) {
   if (this.allowLoose && this.looseConversion > 0 && !this.looseSellingPrice && this.sellingPrice) {

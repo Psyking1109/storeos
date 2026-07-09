@@ -6,6 +6,8 @@ const invoiceItemSchema = new mongoose.Schema({
   qty:          { type: Number, required: true },
   unit:         { type: String, default: 'pcs' },
   unitPrice:    { type: Number, required: true },
+  // Whether this line was sold in loose units (e.g. kg) rather than whole base units (e.g. bags)
+  looseMode:    { type: Boolean, default: false },
   taxLines:     [{ taxCode: String, taxName: String, rate: Number, amount: Number }],
   taxAmount:    { type: Number, default: 0 },
   lineSubtotal: { type: Number, default: 0 },
@@ -14,13 +16,20 @@ const invoiceItemSchema = new mongoose.Schema({
   locationName: { type: String, default: '' },
   // ── Partial delivery tracking (Order/Proforma/Invoice flow) ──
   deliveredQty: { type: Number, default: 0 },
-  deliveries:   [{ qty: { type: Number, required: true }, date: { type: Date, default: Date.now } }]
+  deliveries:   [{ qty: { type: Number, required: true }, date: { type: Date, default: Date.now } }],
+  // ── Returns tracking — how much of this line has already been returned via a credit note ──
+  returnedQty:  { type: Number, default: 0 }
 }); // _id enabled (default) so each line item can be targeted individually for delivery
 
 const invoiceSchema = new mongoose.Schema({
   invoiceNo:    { type: String, required: true, unique: true },
-  // ── Document flow: booking (soft order) → proforma (quote) → invoice (final) ──
-  type:         { type: String, enum: ['booking','proforma','invoice'], default: 'invoice' },
+  // ── Document flow: booking (soft order) → proforma (quote) → invoice (final); credit_note = return against an invoice ──
+  type:         { type: String, enum: ['booking','proforma','invoice','credit_note'], default: 'invoice' },
+  // ── Credit note linkage (only set when type === 'credit_note') ──
+  creditNoteFor:   { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice' },
+  creditNoteForNo: { type: String, default: '' },
+  returnReason:    { type: String, default: '' },
+  restocked:       { type: Boolean, default: false },
   converted:    { type: Boolean, default: false },        // true once this booking/proforma has been turned into an invoice
   convertedFromId: { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice' },
   convertedFromNo: { type: String, default: '' },
@@ -50,6 +59,10 @@ const invoiceSchema = new mongoose.Schema({
   bankAccount:  { type: mongoose.Schema.Types.ObjectId, ref: 'BankAccount' },
   chequeNo:     { type: String, default: '' }
 }, { timestamps: true });
+
+invoiceSchema.index({ type: 1, date: -1 });          // Invoices/Bookings/Proformas list filter + sort
+invoiceSchema.index({ customer: 1 });                 // customer statement / balance lookups
+invoiceSchema.index({ 'items.product': 1, type: 1 }); // commitments-summary aggregation (Inventory page)
 
 invoiceSchema.pre('save', function(next) {
   this.balance = this.total - this.paid;
@@ -83,6 +96,7 @@ invoiceSchema.methods.toJSON = function() {
     obj.items = obj.items.map(item => ({
       ...item,
       pendingQty: (item.qty || 0) - (item.deliveredQty || 0),
+      returnableQty: (item.qty || 0) - (item.returnedQty || 0),
       lineDeliveryStatus: this.lineDeliveryStatus(item)
     }));
   }

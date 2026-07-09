@@ -19,6 +19,9 @@ const invoiceTypeSchema = new mongoose.Schema({
   padLength:     { type: Number, default: 4 },
   taxConfig:     [taxConfigSchema],   // taxes attached to this invoice type
   active:        { type: Boolean, default: true },
+  // Whether invoices created under this type participate in IRD Gazette numbering
+  // (only takes effect when the global toggle in Settings is also ON)
+  useIrdNumbering: { type: Boolean, default: true },
   notes:         { type: String, default: '' }
 }, { timestamps: true });
 

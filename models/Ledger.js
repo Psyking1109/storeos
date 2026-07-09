@@ -14,4 +14,8 @@ const ledgerSchema = new mongoose.Schema({
   narration:   { type: String, default: '' }
 }, { timestamps: true });
 
+ledgerSchema.index({ account: 1, date: 1 });
+ledgerSchema.index({ date: 1 });
+ledgerSchema.index({ sourceType: 1, sourceId: 1 });
+
 module.exports = mongoose.model('Ledger', ledgerSchema);
