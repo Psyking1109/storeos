@@ -118,19 +118,27 @@ function calcTaxes(items, taxInclusive) {
 // GET all invoices (optionally filtered by document type: booking/proforma/invoice)
 router.get('/', async (req, res) => {
   try {
-    const { status, customer, from, to, type, converted } = req.query;
+    const { status, customer, from, to, type, converted, undelivered } = req.query;
     let q = {};
     if (status)   q.status = status;
     if (customer) q.customer = customer;
     if (from||to) { q.date={}; if(from)q.date.$gte=new Date(from); if(to){const d=new Date(to);d.setHours(23,59,59);q.date.$lte=d;} }
-    // Default to 'invoice' only when no explicit type filter is given — this keeps the existing
-    // Invoices list page showing exactly what it always showed, with no visible change unless
-    // the frontend explicitly asks for bookings/proformas via ?type=booking / ?type=proforma / ?type=all
-    if (type && type !== 'all') q.type = type;
-    else if (!type) q.type = 'invoice';
-    else q.type = { $ne: 'credit_note' }; // 'all' still means "the three document-flow types", not credit notes
+    if (undelivered === 'true') {
+      // Undelivered tab: only confirmed invoices — filter by delivery status in JS after fetch
+      q.type = 'invoice';
+    } else if (type && type !== 'all') {
+      q.type = type;
+    } else if (!type) {
+      q.type = 'invoice';
+    } else {
+      q.type = { $ne: 'credit_note' };
+    }
     if (converted !== undefined) q.converted = converted === 'true';
-    res.json(await Invoice.find(q).sort({ date:-1, createdAt:-1 }));
+    let docs = await Invoice.find(q).sort({ date:-1, createdAt:-1 });
+    if (undelivered === 'true') {
+      docs = docs.filter(d => ['partial','not_delivered'].includes(d.overallDeliveryStatus()));
+    }
+    res.json(docs);
   } catch(err) { res.status(500).json({ error:err.message }); }
 });
 

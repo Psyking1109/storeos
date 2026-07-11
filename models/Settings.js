@@ -5,7 +5,18 @@ const settingsSchema = new mongoose.Schema({
   _id: { type: String, default: 'global' },
   // ── IRD Gazette Extraordinary No. 2463/05 invoice numbering (optional, off by default) ──
   irdNumberingEnabled: { type: Boolean, default: false },
-  irdBranchCode:       { type: String, default: '', trim: true, uppercase: true } // the QQQQ segment, free text set by the user
+  irdBranchCode:       { type: String, default: '', trim: true, uppercase: true },
+  // ── Company / Supplier details ──
+  companyName: { type: String, default: '' },
+  tin:         { type: String, default: '' },
+  vrn:         { type: String, default: '' },
+  phone:       { type: String, default: '' },
+  fax:         { type: String, default: '' },
+  email:       { type: String, default: '' },
+  address:     { type: String, default: '' },
+  website:     { type: String, default: '' },
+  footer:      { type: String, default: '' },
+  logoData:    { type: String, default: '' } // base64 data-URI, small logos only
 }, { timestamps: true });
 
 settingsSchema.statics.getSingleton = async function() {

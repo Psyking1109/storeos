@@ -21,25 +21,45 @@ router.get('/', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PUT update settings (toggle + branch code)
+// PUT update settings — accepts IRD fields and/or company fields independently
 router.put('/', async (req, res) => {
   try {
-    const { irdNumberingEnabled, irdBranchCode } = req.body;
-    const clean = (irdBranchCode || '').toUpperCase().replace(/\s+/g, '');
-    if (/\s/.test(irdBranchCode || '')) {
-      return res.status(400).json({ error: 'Branch code cannot contain spaces.' });
+    const update = {};
+
+    // IRD settings (only touched when explicitly sent)
+    if (req.body.irdNumberingEnabled !== undefined || req.body.irdBranchCode !== undefined) {
+      const { irdNumberingEnabled, irdBranchCode } = req.body;
+      const clean = (irdBranchCode || '').toUpperCase().replace(/\s+/g, '');
+      if (/\s/.test(irdBranchCode || '')) {
+        return res.status(400).json({ error: 'Branch code cannot contain spaces.' });
+      }
+      const sample = buildIrdNumber(new Date(), clean, '00000');
+      if (sample.length > 40) {
+        return res.status(400).json({ error: `Branch code too long — resulting invoice number would exceed 40 characters (got ${sample.length}, max 40).` });
+      }
+      update.irdNumberingEnabled = !!irdNumberingEnabled;
+      update.irdBranchCode = clean;
     }
-    // Validate total format length (YYMMM_QQQQ_XXXXX) stays under 40 chars even with a 5-digit serial
-    const sample = buildIrdNumber(new Date(), clean, '00000');
-    if (sample.length > 40) {
-      return res.status(400).json({ error: `Branch code too long — resulting invoice number would exceed 40 characters (got ${sample.length}, max 40).` });
+
+    // Company fields (only update fields present in body)
+    if (req.body.logoData !== undefined && req.body.logoData.length > 1400000) {
+      return res.status(400).json({ error: 'Logo image is too large. Maximum size is 1 MB.' });
     }
-    const settings = await Settings.findByIdAndUpdate(
-      'global',
-      { irdNumberingEnabled: !!irdNumberingEnabled, irdBranchCode: clean },
-      { new: true, upsert: true }
-    );
-    res.json(settings);
+    for (const f of ['companyName','tin','vrn','phone','fax','email','address','website','footer','logoData']) {
+      if (req.body[f] !== undefined) update[f] = req.body[f];
+    }
+
+    const settings = await Settings.findByIdAndUpdate('global', update, { new: true, upsert: true });
+
+    // Include next-invoice-number preview (same as GET handler, for IRD settings page)
+    const previewBranch = settings.irdBranchCode;
+    let preview = '';
+    if (settings.irdNumberingEnabled && previewBranch) {
+      const counterDoc = await Counter.findById(`ird:${previewBranch}`);
+      const nextSerial = (counterDoc?.seq || 0) + 1;
+      preview = buildIrdNumber(new Date(), previewBranch, String(nextSerial).padStart(5, '0'));
+    }
+    res.json({ ...settings.toObject(), preview });
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 

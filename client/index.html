@@ -318,7 +318,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <div style="font-size:11px;color:var(--tx3)">{{cat.items.length}} items · Total value: {{f(cat.items.reduce((s,p)=>s+p.stock*p.costPrice,0))}}</div>
         </div>
         <div class="card" style="margin-bottom:8px"><div class="tw"><table>
-          <thead><tr><th>Name / SKU</th><th>Unit</th><th>Loose</th><th>Cost</th><th>Price</th><th>Taxes</th><th>Stock</th><th>Available</th><th>Ordered</th><th>Invoiced–Undelivered</th><th>Value</th><th></th></tr></thead>
+          <thead><tr><th>Name / SKU</th><th>Unit</th><th>Loose</th><th>Cost</th><th>Price</th><th>Taxes</th><th>Stock</th><th>Physically Available</th><th>Proforma</th><th>Invoiced–Undelivered</th><th>Value</th><th></th></tr></thead>
           <tbody>
             <tr v-for="p in cat.items" :key="p._id">
               <td><div style="font-weight:600;color:var(--txt)">{{p.name}}</div><div class="mn cm" style="font-size:10px">{{p.sku||'—'}}</div></td>
@@ -334,7 +334,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
               <span v-if="p.allowLoose&&p.looseStock>0" style="font-size:10px;color:var(--tx2);display:block;margin-top:2px">+{{p.looseStock}} {{p.looseUnit}} loose</span>
             </td>
               <td class="mn" :style="{color:availForSale(p)<=0?'var(--red)':'var(--grn)'}">{{availForSale(p)}}</td>
-              <td class="mn" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px" @click="openCommitDrill(p,'ordered')">{{orderedQty(p)}}</td>
+              <td class="mn" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px" @click="openCommitDrill(p,'proforma')">{{proformaQty(p)}}</td>
               <td class="mn" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px;color:var(--org)" @click="openCommitDrill(p,'invoiced')">{{undeliveredQty(p)}}</td>
               <td class="mn">{{f(p.stock*p.costPrice)}}</td>
               <td><div class="fx g6"><button class="btn btn-o btn-sm" @click="openProd(p)">Edit</button><button class="btn btn-o btn-sm" @click="openStk(p)">Stock</button><button class="btn btn-b btn-sm" @click="viewStockMovement(p._id)">📊</button><button class="btn btn-d btn-sm" @click="delProd(p._id)">Del</button></div></td>
@@ -347,7 +347,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
     <!-- Flat view when searching or filtering -->
     <template v-else>
       <div class="card"><div class="tw"><table>
-        <thead><tr><th>Name / SKU</th><th>Category</th><th>Unit</th><th>Cost</th><th>Price</th><th>Stock</th><th>Available</th><th>Ordered</th><th>Invoiced–Undelivered</th><th>Value</th><th></th></tr></thead>
+        <thead><tr><th>Name / SKU</th><th>Category</th><th>Unit</th><th>Cost</th><th>Price</th><th>Stock</th><th>Physically Available</th><th>Proforma</th><th>Invoiced–Undelivered</th><th>Value</th><th></th></tr></thead>
         <tbody>
           <tr v-for="p in prods" :key="p._id">
             <td><div style="font-weight:600;color:var(--txt)">{{p.name}}</div><div class="mn cm" style="font-size:10px">{{p.sku||'—'}}</div></td>
@@ -359,7 +359,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
               <span v-if="p.allowLoose&&p.looseStock>0" style="font-size:10px;color:var(--tx2);display:block;margin-top:2px">+{{p.looseStock}} {{p.looseUnit}} loose</span>
             </td>
             <td class="mn" :style="{color:availForSale(p)<=0?'var(--red)':'var(--grn)'}">{{availForSale(p)}}</td>
-            <td class="mn" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px" @click="openCommitDrill(p,'ordered')">{{orderedQty(p)}}</td>
+            <td class="mn" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px" @click="openCommitDrill(p,'proforma')">{{proformaQty(p)}}</td>
             <td class="mn" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px;color:var(--org)" @click="openCommitDrill(p,'invoiced')">{{undeliveredQty(p)}}</td>
             <td class="mn">{{f(p.stock*p.costPrice)}}</td>
             <td><div class="fx g6"><button class="btn btn-o btn-sm" @click="openProd(p)">Edit</button><button class="btn btn-o btn-sm" @click="openStk(p)">Stock</button><button class="btn btn-b btn-sm" @click="viewStockMovement(p._id)">📊</button><button class="btn btn-d btn-sm" @click="delProd(p._id)">Del</button></div></td>
@@ -385,11 +385,11 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
   </div>
 </template>
 
-<!-- COMMITMENTS DRILL-DOWN MODAL (Ordered / Invoiced–Undelivered breakdown) -->
+<!-- COMMITMENTS DRILL-DOWN MODAL (Proforma / Invoiced–Undelivered breakdown) -->
 <div class="mo" v-if="mCommitDrill" @click.self="mCommitDrill=false">
   <div class="md md-lg"><div class="mh"><h3>{{commitDrillTitle}}</h3><button class="xbtn" @click="mCommitDrill=false">×</button></div>
     <div class="mb">
-      <div v-if="commitDrillKind==='ordered'" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+      <div v-if="commitDrillKind==='proforma'" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
         <thead><tr style="background:rgba(255,255,255,.04)">
           <th style="padding:7px 10px;text-align:left;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd)">Doc No.</th>
           <th style="padding:7px 10px;text-align:left;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd)">Type</th>
@@ -405,7 +405,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
             <td class="mn" style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right">{{row.qty}}</td>
             <td class="mn" style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right">{{fd(row.date)}}</td>
           </tr>
-          <tr v-if="!commitDrillRows.length"><td colspan="5" class="emp"><div>No open bookings/proformas for this product</div></td></tr>
+          <tr v-if="!commitDrillRows.length"><td colspan="5" class="emp"><div>No open proformas for this product</div></td></tr>
         </tbody>
       </table></div>
       <div v-else style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
@@ -450,6 +450,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       <button @click="docTypeFilt='invoice';loadInvs()" class="btn btn-sm" :class="docTypeFilt==='invoice'?'btn-p':'btn-o'">Invoices</button>
       <button @click="docTypeFilt='booking';loadInvs()" class="btn btn-sm" :class="docTypeFilt==='booking'?'btn-p':'btn-o'">Bookings</button>
       <button @click="docTypeFilt='proforma';loadInvs()" class="btn btn-sm" :class="docTypeFilt==='proforma'?'btn-p':'btn-o'">Proformas</button>
+      <button @click="docTypeFilt='undelivered';loadInvs()" class="btn btn-sm" :class="docTypeFilt==='undelivered'?'btn-p':'btn-o'">Undelivered</button>
     </div>
   </div>
   <div class="content" style="padding-top:0">
@@ -461,6 +462,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
             <span class="mn fw" :class="i.isReturn?'cr':'ca'" style="cursor:pointer;text-decoration:underline;text-underline-offset:3px" @click="openInvDetail(i)">{{i.invoiceNo}}</span>
             <span v-if="i.isReturn" style="font-size:9px;background:rgba(224,82,82,.15);color:var(--red);padding:1px 5px;border-radius:3px;margin-left:4px;font-family:var(--fm)">RETURN</span>
             <div v-if="i.convertedFromNo" style="font-size:10px;color:var(--tx3);margin-top:2px">Converted from {{i.convertedFromNo}}</div>
+            <div v-if="docTypeFilt==='undelivered'" style="font-size:10px;color:var(--org);margin-top:2px">{{i.items.reduce((s,it)=>s+(it.pendingQty||0),0).toFixed(2)}} units pending</div>
           </td>
           <td class="mn cm" style="font-size:11px">{{i.invoiceTypeName||'—'}}</td>
           <td>{{i.customerName}}</td><td class="mn cm">{{fd(i.date)}}</td>
@@ -1279,17 +1281,24 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
 <!-- COMPANY SETTINGS PAGE -->
 <template v-if="pg==='cosettings'">
   <div class="topbar"><h2>🏢 Company Settings</h2></div>
-  <div class="content"><div class="card" style="max-width:600px">
+  <div class="content"><div class="card" style="max-width:620px"><div class="cb">
+    <div v-if="mErr" class="al al-d" style="margin-bottom:10px">{{mErr}}</div>
     <div class="fg">
-      <div class="fr"><div class="fl"><label>Company Name *</label><input v-model="coSettings.name" class="fc" placeholder="Your Company Ltd"/></div><div class="fl"><label>TIN / Tax ID</label><input v-model="coSettings.tin" class="fc" placeholder="123456789"/></div></div>
+      <div class="fr"><div class="fl"><label>Company Name *</label><input v-model="coSettings.companyName" class="fc" placeholder="Your Company Ltd"/></div><div class="fl"><label>TIN / Tax ID</label><input v-model="coSettings.tin" class="fc" placeholder="123456789"/></div></div>
       <div class="fr"><div class="fl"><label>VAT Reg No.</label><input v-model="coSettings.vrn" class="fc" placeholder="VAT-XXXXXXXXX"/></div><div class="fl"><label>Phone</label><input v-model="coSettings.phone" class="fc" placeholder="+94 11 234 5678"/></div></div>
-      <div class="fl"><label>Email</label><input v-model="coSettings.email" class="fc" placeholder="info@company.lk"/></div>
+      <div class="fr"><div class="fl"><label>Fax</label><input v-model="coSettings.fax" class="fc" placeholder="+94 11 234 5679"/></div><div class="fl"><label>Email</label><input v-model="coSettings.email" class="fc" placeholder="info@company.lk"/></div></div>
       <div class="fl"><label>Address</label><textarea v-model="coSettings.address" class="fc" rows="2" placeholder="123 Main Street, Colombo 03, Sri Lanka"></textarea></div>
       <div class="fr"><div class="fl"><label>Website</label><input v-model="coSettings.website" class="fc" placeholder="www.company.lk"/></div><div class="fl"><label>Invoice Footer</label><input v-model="coSettings.footer" class="fc" placeholder="Thank you for your business!"/></div></div>
-      <div class="fl"><label>Logo URL</label><input v-model="coSettings.logoUrl" class="fc" placeholder="https://..."/><div v-if="coSettings.logoUrl" style="margin-top:6px"><img :src="coSettings.logoUrl" style="max-height:80px;border-radius:4px" onerror="this.style.display='none'"/></div></div>
+      <div class="fl"><label>Logo <span style="font-size:10px;color:var(--tx3)">(max 1 MB image)</span></label>
+        <input type="file" accept="image/*" @change="onLogoUpload" class="fc" style="padding:5px"/>
+        <div v-if="coSettings.logoData" style="margin-top:6px;display:flex;align-items:center;gap:8px">
+          <img :src="coSettings.logoData" style="max-height:80px;border-radius:4px"/>
+          <button type="button" class="btn btn-d btn-sm" @click="coSettings.logoData=''">Remove</button>
+        </div>
+      </div>
       <button class="btn btn-p" @click="saveCoSettings">💾 Save</button>
     </div>
-  </div></div>
+  </div></div></div>
 </template>
 
 <template v-if="pg==='usr'">
@@ -2166,6 +2175,16 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
         <div class="fl"><label>Due Date</label><input v-model="nInv.dueDate" type="date" class="fc"/></div>
         <div class="fl"><label>Tax Mode</label><select v-model="nInv.taxInclusive" @change="calcInv" class="fc"><option :value="false">Tax Exclusive</option><option :value="true">Tax Inclusive</option></select></div>
       </div>
+      <!-- Purchaser details (persisted, autofilled from customer) -->
+      <div class="fr fr3" style="margin-bottom:10px">
+        <div class="fl"><label>Purchaser TIN</label><input v-model="nInv.customerTin" class="fc" placeholder="Tax ID (auto-filled)"/></div>
+        <div class="fl"><label>Purchaser Phone</label><input v-model="nInv.customerPhone" class="fc" placeholder="Phone (auto-filled)"/></div>
+        <div class="fl"><label>Place of Supply</label><input v-model="nInv.placeOfSupply" class="fc" placeholder="e.g. Colombo"/></div>
+      </div>
+      <div class="fr" style="margin-bottom:10px">
+        <div class="fl"><label>Purchaser Address</label><textarea v-model="nInv.customerAddress" class="fc" rows="1" placeholder="Address (auto-filled)"></textarea></div>
+        <div class="fl"><label>Date of Delivery</label><input v-model="nInv.dateOfDelivery" type="date" class="fc"/></div>
+      </div>
       <!-- Tax Invoice Toggle + TIN Banner + Invoice Type Tax Toggles -->
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
         <button @click="nInv.taxInvoice=!nInv.taxInvoice" class="btn" :class="nInv.taxInvoice?'btn-p':'btn-o'">
@@ -2228,7 +2247,9 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
         <tbody>
           <tr v-for="(item,i) in nInv.items" :key="i">
             <td style="min-width:150px"><input v-model="item.productName" class="fc" placeholder="Item name"/></td>
-            <td style="width:70px"><input v-model="item.qty" type="number" min="0" step="0.001" class="fc" @input="calcInv()" @blur="item.qty=+item.qty||0"/></td>
+            <td style="width:70px"><input v-model="item.qty" type="number" min="0" step="0.001" class="fc" @input="calcInv()" @blur="item.qty=+item.qty||0"/>
+              <div v-if="nInv.type==='invoice'&&lineStockWarning(item)" style="font-size:10px;color:var(--red);margin-top:2px">⚠ {{lineStockWarning(item)}}</div>
+            </td>
             <td style="width:100px">
               <div style="display:flex;gap:3px;align-items:center">
                 <input v-model="item.unit" class="fc" placeholder="pcs" style="flex:1;min-width:0"/>
@@ -2868,10 +2889,11 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       <!-- Toolbar -->
       <div id="no-print" style="padding:12px 16px;background:var(--sur2);border-bottom:1px solid var(--brd2);display:flex;gap:12px;align-items:center;flex-wrap:wrap">
         <div style="font-size:12px;color:var(--tx2);font-weight:600">Template:</div>
-        <select v-model="printTpl" class="fc" style="width:160px">
+        <select v-model="printTpl" class="fc" style="width:200px">
           <option value="classic">Classic</option>
           <option value="modern">Modern</option>
           <option value="minimal">Minimal</option>
+          <option value="tax_lk">TAX INVOICE (LK)</option>
         </select>
         <div style="font-size:12px;color:var(--tx2);font-weight:600;margin-left:8px">Accent:</div>
         <input type="color" v-model="printColor" style="width:36px;height:28px;border:1px solid var(--brd2);border-radius:4px;cursor:pointer;background:none"/>
@@ -2891,7 +2913,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <template v-if="printTpl==='classic'">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:20px" :style="'border-bottom:3px solid '+printColor">
               <div>
-                <div style="font-size:26px;font-weight:800;letter-spacing:-1px" :style="'color:'+printColor">{{coSettings.name||'Your Company'}}</div>
+                <div style="font-size:26px;font-weight:800;letter-spacing:-1px" :style="'color:'+printColor">{{coSettings.companyName||'Your Company'}}</div>
                 <div style="font-size:12px;color:#666;margin-top:4px;line-height:1.6">
                   <div v-if="coSettings.address">{{coSettings.address}}</div>
                   <div v-if="coSettings.phone">Tel: {{coSettings.phone}}</div>
@@ -2930,7 +2952,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <template v-if="printTpl==='modern'">
             <div :style="'background:'+printColor+';padding:24px 28px;margin:-20px -20px 24px;border-radius:8px 8px 0 0'" style="display:flex;justify-content:space-between;align-items:center">
               <div>
-                <div style="font-size:22px;font-weight:800;color:#fff">{{coSettings.name||'Your Company'}}</div>
+                <div style="font-size:22px;font-weight:800;color:#fff">{{coSettings.companyName||'Your Company'}}</div>
                 <div style="font-size:11px;color:rgba(255,255,255,.75);margin-top:3px">{{coSettings.address}}</div>
               </div>
               <div style="text-align:right">
@@ -2949,7 +2971,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <template v-if="printTpl==='minimal'">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:30px">
               <div>
-                <div style="font-size:28px;font-weight:900;color:#111;letter-spacing:-1px">{{coSettings.name||'Your Company'}}</div>
+                <div style="font-size:28px;font-weight:900;color:#111;letter-spacing:-1px">{{coSettings.companyName||'Your Company'}}</div>
                 <div style="font-size:11px;color:#888;margin-top:6px;line-height:1.7">
                   <div>{{coSettings.address}}</div><div>{{coSettings.phone}} · {{coSettings.email}}</div>
                 </div>
@@ -2966,7 +2988,111 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
             </div>
           </template>
 
-          <!-- ITEMS TABLE (all templates) -->
+          <!-- TAX INVOICE (LK) template — self-contained, replaces items/totals/footer -->
+          <template v-if="printTpl==='tax_lk'">
+            <div style="border:2px solid #000;font-size:12px;color:#000">
+              <table style="width:100%;border-collapse:collapse">
+                <tr>
+                  <td style="width:55%;padding:12px 14px;vertical-align:top;border-right:1px solid #000">
+                    <div v-if="coSettings.logoData" style="margin-bottom:8px"><img :src="coSettings.logoData" style="max-height:64px;max-width:130px"/></div>
+                    <div style="font-size:15px;font-weight:700">{{coSettings.companyName}}</div>
+                    <div v-if="coSettings.address" style="margin-top:3px;line-height:1.5;white-space:pre-line">{{coSettings.address}}</div>
+                    <div v-if="coSettings.phone">Tel: {{coSettings.phone}}</div>
+                    <div v-if="coSettings.fax">Fax: {{coSettings.fax}}</div>
+                    <div v-if="coSettings.email">E-mail: {{coSettings.email}}</div>
+                    <div v-if="coSettings.tin" style="margin-top:4px">Supplier's TIN: <strong>{{coSettings.tin}}</strong></div>
+                    <div v-if="coSettings.vrn">VAT Reg: <strong>{{coSettings.vrn}}</strong></div>
+                  </td>
+                  <td style="padding:12px 14px;vertical-align:top">
+                    <div style="font-size:19px;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">{{printInv.taxInvoice===false?'INVOICE':'TAX INVOICE'}}</div>
+                    <table style="width:100%;border-collapse:collapse">
+                      <tr><td style="color:#555;padding:3px 0;width:55%">Date of Invoice:</td><td style="font-weight:600;padding:3px 0">{{fd(printInv.date)}}</td></tr>
+                      <tr><td style="color:#555;padding:3px 0">Tax Invoice No.:</td><td style="font-weight:600;padding:3px 0;font-family:monospace">{{printInv.invoiceNo}}</td></tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+              <div style="border-top:1px solid #000;padding:10px 14px">
+                <div style="font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#555;margin-bottom:5px">Purchaser Details</div>
+                <table style="width:100%;border-collapse:collapse">
+                  <tr>
+                    <td style="width:50%;vertical-align:top;padding-right:10px">
+                      <div>Purchaser's TIN: <strong>{{printInv.customerTin||'—'}}</strong></div>
+                      <div style="margin-top:2px">Name: <strong>{{printInv.customerName}}</strong></div>
+                      <div v-if="printInv.customerAddress" style="margin-top:2px">Address: {{printInv.customerAddress}}</div>
+                      <div v-if="printInv.customerPhone" style="margin-top:2px">Tel: {{printInv.customerPhone}}</div>
+                    </td>
+                    <td style="vertical-align:top">
+                      <div v-if="printInv.dateOfDelivery">Date of Delivery: <strong>{{fd(printInv.dateOfDelivery)}}</strong></div>
+                      <div v-if="printInv.placeOfSupply" style="margin-top:2px">Place of Supply: {{printInv.placeOfSupply}}</div>
+                    </td>
+                  </tr>
+                </table>
+                <div v-if="printInv.notes" style="margin-top:5px">Additional Information: {{printInv.notes}}</div>
+              </div>
+              <table style="width:100%;border-collapse:collapse;border-top:1px solid #000">
+                <thead>
+                  <tr style="background:#f0f0f0">
+                    <th style="padding:6px 8px;text-align:left;border:1px solid #bbb;width:12%">Reference</th>
+                    <th style="padding:6px 8px;text-align:left;border:1px solid #bbb">Description of Goods / Services</th>
+                    <th style="padding:6px 8px;text-align:center;border:1px solid #bbb;width:13%">Quantity</th>
+                    <th style="padding:6px 8px;text-align:right;border:1px solid #bbb;width:14%">Unit Price (Rs.)</th>
+                    <th style="padding:6px 8px;text-align:right;border:1px solid #bbb;width:17%">Amount Excl. VAT (Rs.)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(item,i) in (printInv.items||[])" :key="i">
+                    <td style="padding:6px 8px;border:1px solid #ddd">{{item.sku||''}}</td>
+                    <td style="padding:6px 8px;border:1px solid #ddd">{{item.productName}}</td>
+                    <td style="padding:6px 8px;text-align:center;border:1px solid #ddd">{{item.qty}} {{item.unit}}</td>
+                    <td style="padding:6px 8px;text-align:right;border:1px solid #ddd;font-family:monospace">{{f(item.unitPrice)}}</td>
+                    <td style="padding:6px 8px;text-align:right;border:1px solid #ddd;font-family:monospace">{{f(item.lineSubtotal)}}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <table style="width:100%;border-collapse:collapse;border-top:2px solid #000">
+                <tr style="border-bottom:1px solid #ddd">
+                  <td style="padding:6px 10px;width:45%"></td>
+                  <td style="padding:6px 10px;color:#555">Total Value of Supply</td>
+                  <td style="padding:6px 10px;text-align:right;font-family:monospace;font-weight:600;width:18%">{{f(printInv.subtotal)}}</td>
+                </tr>
+                <tr v-for="tl in (printInv.taxBreakdown||[]).filter(t=>!t.businessTax)" :key="tl.taxCode" style="border-bottom:1px solid #ddd">
+                  <td></td>
+                  <td style="padding:6px 10px;color:#555">VAT Amount ({{tl.rate}}%)</td>
+                  <td style="padding:6px 10px;text-align:right;font-family:monospace;font-weight:600">{{f(tl.amount)}}</td>
+                </tr>
+                <tr v-if="printInv.discount" style="border-bottom:1px solid #ddd">
+                  <td></td>
+                  <td style="padding:6px 10px;color:#555">Discount</td>
+                  <td style="padding:6px 10px;text-align:right;font-family:monospace;color:#c00">({{f(printInv.discount)}})</td>
+                </tr>
+                <tr style="background:#f5f5f5;border-top:2px solid #000;border-bottom:2px solid #000">
+                  <td></td>
+                  <td style="padding:8px 10px;font-weight:700;font-size:13px">Total Amount including VAT</td>
+                  <td style="padding:8px 10px;text-align:right;font-family:monospace;font-weight:700;font-size:13px">{{f(printInv.total)}}</td>
+                </tr>
+                <tr style="border-bottom:1px solid #ddd">
+                  <td colspan="3" style="padding:8px 10px">
+                    <span style="color:#555">Total Amount in Words:</span>
+                    <div style="font-weight:600;margin-top:2px;font-style:italic">{{amountInWords(printInv.total)}}</div>
+                  </td>
+                </tr>
+              </table>
+              <div style="padding:8px 14px;font-size:12px">
+                <span style="color:#555;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px">Mode of Payment: </span>
+                <span style="margin-left:10px">
+                  <span style="margin-right:14px"><span style="display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:3px;text-align:center;line-height:10px;font-size:9px">{{(printInv.paymentMode||'')==='cash'?'✓':''}}</span>Cash</span>
+                  <span style="margin-right:14px"><span style="display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:3px;text-align:center;line-height:10px;font-size:9px">{{(printInv.paymentMode||'')==='credit'?'✓':''}}</span>Credit</span>
+                  <span style="margin-right:14px"><span style="display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:3px;text-align:center;line-height:10px;font-size:9px">{{(printInv.paymentMode||'')==='cheque'?'✓':''}}</span>Cheque</span>
+                  <span><span style="display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:3px;text-align:center;line-height:10px;font-size:9px">{{(printInv.paymentMode||'')==='bank'?'✓':''}}</span>Bank Transfer</span>
+                </span>
+              </div>
+              <div v-if="coSettings.footer" style="border-top:1px solid #ddd;padding:6px 14px;text-align:center;color:#777;font-size:11px">{{coSettings.footer}}</div>
+            </div>
+          </template>
+
+          <!-- ITEMS TABLE + TOTALS + FOOTER (classic / modern / minimal only) -->
+          <template v-if="printTpl!=='tax_lk'">
           <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:13px">
             <thead>
               <tr :style="'background:'+printColor+'15'">
@@ -3022,6 +3148,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
             {{coSettings.footer||'Thank you for your business!'}}
             <span v-if="coSettings.website"> · {{coSettings.website}}</span>
           </div>
+          </template>
         </div>
       </div>
     </div>
@@ -3032,13 +3159,20 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
 <div class="mo" v-if="mCoSettings" @click.self="mCoSettings=false">
   <div class="md md-lg"><div class="mh"><h3>🏢 Company Settings</h3><button class="xbtn" @click="mCoSettings=false">×</button></div>
   <div class="mb">
+    <div v-if="mErr" class="al al-d">{{mErr}}</div>
     <div class="fg">
-      <div class="fr"><div class="fl"><label>Company Name *</label><input v-model="coSettings.name" class="fc" placeholder="Your Company Ltd"/></div><div class="fl"><label>TIN / Tax ID</label><input v-model="coSettings.tin" class="fc" placeholder="123456789"/></div></div>
+      <div class="fr"><div class="fl"><label>Company Name *</label><input v-model="coSettings.companyName" class="fc" placeholder="Your Company Ltd"/></div><div class="fl"><label>TIN / Tax ID</label><input v-model="coSettings.tin" class="fc" placeholder="123456789"/></div></div>
       <div class="fr"><div class="fl"><label>VAT Reg No.</label><input v-model="coSettings.vrn" class="fc" placeholder="VAT-XXXXXXXXX"/></div><div class="fl"><label>Phone</label><input v-model="coSettings.phone" class="fc" placeholder="+94 11 234 5678"/></div></div>
-      <div class="fl"><label>Email</label><input v-model="coSettings.email" class="fc" placeholder="info@company.lk" type="email"/></div>
+      <div class="fr"><div class="fl"><label>Fax</label><input v-model="coSettings.fax" class="fc" placeholder="+94 11 234 5679"/></div><div class="fl"><label>Email</label><input v-model="coSettings.email" class="fc" placeholder="info@company.lk" type="email"/></div></div>
       <div class="fl"><label>Address</label><textarea v-model="coSettings.address" class="fc" rows="2" placeholder="123 Main Street, Colombo 03, Sri Lanka"></textarea></div>
       <div class="fr"><div class="fl"><label>Website</label><input v-model="coSettings.website" class="fc" placeholder="www.company.lk"/></div><div class="fl"><label>Invoice Footer Text</label><input v-model="coSettings.footer" class="fc" placeholder="Thank you for your business!"/></div></div>
-      <div class="fl"><label>Logo URL <span style="font-size:10px;color:var(--tx3)">(paste an image URL)</span></label><input v-model="coSettings.logoUrl" class="fc" placeholder="https://..."/><div v-if="coSettings.logoUrl" style="margin-top:6px"><img :src="coSettings.logoUrl" style="max-height:60px;border-radius:4px" onerror="this.style.display='none'"/></div></div>
+      <div class="fl"><label>Logo <span style="font-size:10px;color:var(--tx3)">(max 1 MB image)</span></label>
+        <input type="file" accept="image/*" @change="onLogoUpload" class="fc" style="padding:5px"/>
+        <div v-if="coSettings.logoData" style="margin-top:6px;display:flex;align-items:center;gap:8px">
+          <img :src="coSettings.logoData" style="max-height:60px;border-radius:4px"/>
+          <button type="button" class="btn btn-d btn-sm" @click="coSettings.logoData=''">Remove</button>
+        </div>
+      </div>
     </div>
   </div>
   <div class="mf"><button class="btn btn-o" @click="mCoSettings=false">Cancel</button><button class="btn btn-p" @click="saveCoSettings">💾 Save Settings</button></div>

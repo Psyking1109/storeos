@@ -30,8 +30,8 @@ router.get('/meta/categories', requireAuth, async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-// Batch commitments summary — powers the Inventory table's "Available
-// for Sale", "Ordered", and "Invoiced – Undelivered" columns without
+// Batch commitments summary — powers the Inventory table's "Physically
+// Available", "Proforma", and "Invoiced – Undelivered" columns without
 // N+1 queries. Must be defined BEFORE /:id or Express would treat
 // "commitments-summary" as an :id value.
 // ══════════════════════════════════════════════════════════════════
@@ -39,11 +39,11 @@ router.get('/commitments-summary', requireAuth, async (req, res) => {
   try {
     const Invoice = require('../models/Invoice');
 
-    // Ordered = total qty on OPEN (not-yet-converted) bookings/proformas, per product
+    // Proforma = total qty on OPEN (not-yet-converted) proformas only, per product
     const orderedAgg = await Invoice.aggregate([
-      { $match: { type: { $in: ['booking','proforma'] }, converted: { $ne: true } } },
+      { $match: { type: 'proforma', converted: { $ne: true } } },
       { $unwind: '$items' },
-      { $group: { _id: '$items.product', ordered: { $sum: '$items.qty' } } }
+      { $group: { _id: '$items.product', proforma: { $sum: '$items.qty' } } }
     ]);
 
     // Invoiced-undelivered = sum of pendingQty (qty - deliveredQty) across confirmed invoices, per product
@@ -57,15 +57,15 @@ router.get('/commitments-summary', requireAuth, async (req, res) => {
     const summary = {};
     for (const row of orderedAgg) {
       if (!row._id) continue;
-      summary[row._id.toString()] = { ordered: row.ordered, invoicedUndelivered: 0 };
+      summary[row._id.toString()] = { proforma: row.proforma, invoicedUndelivered: 0 };
     }
     for (const row of invoicedAgg) {
       if (!row._id) continue;
       const key = row._id.toString();
-      if (!summary[key]) summary[key] = { ordered: 0, invoicedUndelivered: 0 };
+      if (!summary[key]) summary[key] = { proforma: 0, invoicedUndelivered: 0 };
       summary[key].invoicedUndelivered = row.undelivered;
     }
-    res.json(summary); // { [productId]: { ordered, invoicedUndelivered } }
+    res.json(summary); // { [productId]: { proforma, invoicedUndelivered } }
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -177,24 +177,24 @@ router.get('/:id/movements', requireAuth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET drill-down breakdown for a single product's Ordered / Invoiced-Undelivered totals
+// GET drill-down breakdown for a single product's Proforma / Invoiced-Undelivered totals
 router.get('/:id/commitments', requireAuth, async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
     const Invoice = require('../models/Invoice');
 
-    // Open bookings/proformas for this product (not yet converted)
+    // Open proformas for this product (not yet converted)
     const openDocs = await Invoice.find({
-      type: { $in: ['booking','proforma'] },
+      type: 'proforma',
       converted: { $ne: true },
       'items.product': req.params.id
     }).sort({ date: -1 });
 
-    const ordered = [];
+    const proforma = [];
     for (const doc of openDocs) {
       for (const item of doc.items) {
         if (item.product?.toString() === req.params.id) {
-          ordered.push({
+          proforma.push({
             invoiceId: doc._id, invoiceNo: doc.invoiceNo, type: doc.type,
             customerName: doc.customerName, qty: item.qty, date: doc.date
           });
@@ -225,7 +225,7 @@ router.get('/:id/commitments', requireAuth, async (req, res) => {
       }
     }
 
-    res.json({ ordered, invoiced });
+    res.json({ proforma, invoiced });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

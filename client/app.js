@@ -83,8 +83,22 @@ function toggleTheme(){
 
 // ── COMPANY SETTINGS ────────────────────────────────────────────────────────
 const mCoSettings=ref(false);
-const coSettings=ref(JSON.parse(localStorage.getItem('storeos_co')||'{"name":"","address":"","phone":"","email":"","tin":"","vrn":"","website":"","footer":"Thank you for your business!","logoUrl":""}'));
-function saveCoSettings(){localStorage.setItem('storeos_co',JSON.stringify(coSettings.value));mCoSettings.value=false;}
+const coSettings=ref({companyName:'',tin:'',vrn:'',phone:'',fax:'',email:'',address:'',website:'',footer:'Thank you for your business!',logoData:''});
+async function loadCoSettings(){
+  try{const s=await api('GET','/settings');coSettings.value={...coSettings.value,...s};}catch(e){}
+}
+async function saveCoSettings(){
+  try{
+    const{companyName,tin,vrn,phone,fax,email,address,website,footer,logoData}=coSettings.value;
+    await api('PUT','/settings',{companyName,tin,vrn,phone,fax,email,address,website,footer,logoData});
+    mCoSettings.value=false;
+  }catch(e){mErr.value=e.message;}
+}
+function onLogoUpload(e){
+  const file=e.target.files[0];if(!file)return;
+  if(file.size>1024*1024){mErr.value='Logo must be under 1 MB';return;}
+  const r=new FileReader();r.onload=()=>{coSettings.value.logoData=r.result;};r.readAsDataURL(file);
+}
 
 // ── JOURNAL ENTRY (direct posting to ledger accounts) ───────────────────────
 const mJournalEntry=ref(false);
@@ -467,6 +481,36 @@ function onLedgerAccChange(){
   if(acc)eExp.value.ledgerAccountName=acc.name;
 }
 
+// ── AMOUNT IN WORDS (for TAX INVOICE LK template) ───────────────────────────
+function amountInWords(n){
+  const num=Math.abs(Number(n)||0);
+  const rupees=Math.floor(num);
+  const cents=Math.round((num-rupees)*100);
+  const ones=['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+  const tens=['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+  function w(n){
+    if(n<=0)return'';
+    if(n<20)return ones[n]+' ';
+    if(n<100)return tens[Math.floor(n/10)]+' '+(n%10?ones[n%10]+' ':'');
+    if(n<1000)return ones[Math.floor(n/100)]+' Hundred '+(n%100?'and '+w(n%100):'');
+    if(n<1000000)return w(Math.floor(n/1000))+'Thousand '+(n%1000?w(n%1000):'');
+    return w(Math.floor(n/1000000))+'Million '+(n%1000000?w(n%1000000):'');
+  }
+  const rw=rupees===0?'Zero':w(rupees).trim();
+  return'Rupees '+rw+' and Cents '+String(cents).padStart(2,'0')+'/100 only';
+}
+
+// ── LINE STOCK WARNING (Task 4) ───────────────────────────────────────────────
+function lineStockWarning(item){
+  if(!item.product)return'';
+  const p=prods.value.find(x=>x._id===item.product);
+  if(!p)return'';
+  const availBase=(p.stock||0)+(p.looseConversion>0?(p.looseStock||0)/p.looseConversion:0);
+  const needBase=item.looseMode&&item.looseConversion>0?(item.qty||0)/item.looseConversion:(item.qty||0);
+  if(needBase>availBase+1e-9)return`Only ${p.stock||0} ${p.unit} in stock`;
+  return'';
+}
+
 // ── PRINT INVOICE ────────────────────────────────────────────────────────────
 const mPrintInv=ref(false);
 const printInv=ref({});
@@ -506,21 +550,21 @@ async function saveCat(){
 }
 async function delCat(id){if(!confirm('Delete this category?'))return;try{await api('DELETE','/categories/'+id);await loadSavedCats();}catch(e){alert(e.message);}}
 
-// ── Commitments summary (Ordered / Invoiced-Undelivered) for Inventory columns ──
+// ── Commitments summary (Proforma / Invoiced-Undelivered) for Inventory columns ──
 const commitSummary=ref({});
 async function loadCommitSummary(){try{commitSummary.value=await api('GET','/products/commitments-summary');}catch(e){}}
-function orderedQty(p){return commitSummary.value[p._id]?.ordered||0;}
+function proformaQty(p){return commitSummary.value[p._id]?.proforma||0;}
 function undeliveredQty(p){return commitSummary.value[p._id]?.invoicedUndelivered||0;}
 function availForSale(p){return (p.stock||0)-undeliveredQty(p);}
 
-// ── Drill-down modal for Ordered / Invoiced-Undelivered totals ──
+// ── Drill-down modal for Proforma / Invoiced-Undelivered totals ──
 const mCommitDrill=ref(false);const commitDrillTitle=ref('');const commitDrillRows=ref([]);const commitDrillKind=ref('');
 async function openCommitDrill(p, kind){
   commitDrillKind.value=kind;
-  commitDrillTitle.value=(kind==='ordered'?'Ordered (Booked/Proforma) — ':'Invoiced – Undelivered — ')+p.name;
+  commitDrillTitle.value=(kind==='proforma'?'Proforma commitments — ':'Invoiced – Undelivered — ')+p.name;
   try{
     const data=await api('GET','/products/'+p._id+'/commitments');
-    commitDrillRows.value=kind==='ordered'?data.ordered:data.invoiced;
+    commitDrillRows.value=kind==='proforma'?data.proforma:data.invoiced;
     mCommitDrill.value=true;
   }catch(e){alert(e.message);}
 }
@@ -600,7 +644,7 @@ const eBAcc=ref({});const eBTx=ref({});const eChq=ref({});const chqStsData=ref({
 const payDoc=ref(null);const payAmt=ref(0);const payMode=ref('cash');const payCashAcc=ref('');const payBankAcc=ref('');const payChqNo=ref('');const payDate=ref(today);
 const iSrch=ref('');const iSrchRes=ref([]);const iSrchLoading=ref(false);const poSrch=ref('');const poSrchRes=ref([]);
 const invNoPreview=ref('');
-function fInv(){return{type:'invoice',customer:'',customerName:'Walk-in Customer',customerTin:'',date:today,dueDate:'',taxInclusive:false,taxInvoice:false,invoiceType:'',invoiceTypeName:'',invTypeTaxConfig:[],toggledTaxes:{},items:[],subtotal:0,taxAmount:0,taxBreakdown:[],discount:0,total:0,paid:0,balance:0,paymentMode:'cash',cashAccount:'',bankAccount:'',chequeNo:'',notes:''};} 
+function fInv(){return{type:'invoice',customer:'',customerName:'Walk-in Customer',customerTin:'',customerAddress:'',customerPhone:'',placeOfSupply:'',dateOfDelivery:'',date:today,dueDate:'',taxInclusive:false,taxInvoice:false,invoiceType:'',invoiceTypeName:'',invTypeTaxConfig:[],toggledTaxes:{},items:[],subtotal:0,taxAmount:0,taxBreakdown:[],discount:0,total:0,paid:0,balance:0,paymentMode:'cash',cashAccount:'',bankAccount:'',chequeNo:'',notes:''};} 
 const nInv=ref(fInv());
 function fPO(type){return{purchaseType:type||'local',supplier:'',supplierName:'',date:today,currency:'USD',exchangeRate:300,items:[],landingCosts:[],subtotalForeign:0,subtotal:0,taxAmount:0,landingCostTotal:0,total:0,paid:0,balance:0,paymentMode:'cash',updateStock:true,taxInclusive:false,notes:''};} 
 const nPO=ref(fPO());
@@ -620,7 +664,15 @@ async function loadProds(){try{prods.value=await api('GET','/products?search='+p
 async function loadCats(){try{cats.value=await api('GET','/products/meta/categories');}catch(e){}}
 async function loadTxRates(){try{txRates.value=await api('GET','/tax');}catch(e){}}
 async function loadAllTxRates(){try{allTxRates.value=await api('GET','/tax/all');}catch(e){}}
-async function loadInvs(){try{invs.value=await api('GET','/invoices?status='+ifilt.value+'&type='+docTypeFilt.value);}catch(e){}}
+async function loadInvs(){
+  try{
+    if(docTypeFilt.value==='undelivered'){
+      invs.value=await api('GET','/invoices?status='+ifilt.value+'&undelivered=true');
+    }else{
+      invs.value=await api('GET','/invoices?status='+ifilt.value+'&type='+docTypeFilt.value);
+    }
+  }catch(e){}
+}
 async function loadPOs(){try{let q='/purchases?purchaseType='+pofilt.value;if(poFinFilt.value==='open')q+='&isFinalized=false';if(poFinFilt.value==='finalized')q+='&isFinalized=true';pos.value=await api('GET',q);}catch(e){}}
 async function loadCusts(){try{custs.value=await api('GET','/customers');}catch(e){}}
 async function loadSupps(){try{supps.value=await api('GET','/suppliers');}catch(e){}}
@@ -753,7 +805,14 @@ async function saveStkAdj(){
   }catch(e){alert(e.message);}
   saving.value=false;
 }
-function onCustChange(){const c=custs.value.find(c=>c._id===nInv.value.customer);nInv.value.customerName=c?c.name:'Walk-in Customer';nInv.value.customerTin=c?.tin||'';}
+function onCustChange(){
+  const c=custs.value.find(c=>c._id===nInv.value.customer);
+  nInv.value.customerName=c?c.name:'Walk-in Customer';
+  nInv.value.customerTin=c?.tin||'';
+  nInv.value.customerAddress=c?.address||'';
+  nInv.value.customerPhone=c?.phone||'';
+  if(!c){nInv.value.customerAddress='';nInv.value.customerPhone='';}
+}
 let _srchTimer=null;
 async function previewInvNo(typeId){
   if(!typeId){invNoPreview.value='';return;}
@@ -1257,7 +1316,7 @@ async function saveReturn(){
   saving.value=false;
 }
 
-onMounted(()=>{if(tok.value){loadDash();loadTxRates();loadCas();loadInvTypes();loadLocs();loadSavedCats();loadCats();}});
+onMounted(()=>{if(tok.value){loadDash();loadTxRates();loadCas();loadInvTypes();loadLocs();loadSavedCats();loadCats();loadCoSettings();}});
 return{tok,me,lf,lerr,lding,spwd,pw,pwErr,pwOk,can,login,logout,changePw,
 pg,saving,mErr,dash,prods,invs,pos,custs,supps,cats,txRates,allTxRates,taxRpt,users,invTypes,locs,
 cas,xfers,exps,exSumm,expCats,baccs,btxs,btab,btf,chqs,chqf,
@@ -1279,9 +1338,10 @@ openChq,saveChq,qChqSts,saveChqSts,delChq,
 openTxRate,saveTxRate,disableTxRate,openInvType,saveInvType,delInvType,mTaxDetail,taxDetailData,openTaxDetail,
 openLoc,saveLoc,openUser,saveUser,disableUser,viewCashLedger,loadCashLedger,cashLedgerAcc,cashLedRows,cashLedFr,cashLedTo,selectedCashRow,mEditCashEntry,eCashEntry,editCashEntry,saveCashEntry,delCashEntry,addTaxToInvType,applyInvTypeTaxConfig,toggleInvTypeTax,
 loadLed,loadAccLed,loadTaxRpt,loadTaxMonthly,loadRpt,expandedRptRows,toggleRptRow,loadInvs,loadExps,mCat,eCat,savedCats,pCatFilter,saveCat,delCat,prodsByCategory,mQuickProd,openQuickProd,saveQuickProd,toggleLooseMode,
-commitSummary,loadCommitSummary,orderedQty,undeliveredQty,availForSale,mCommitDrill,commitDrillTitle,commitDrillRows,commitDrillKind,openCommitDrill,openCommitDrillDoc,
+commitSummary,loadCommitSummary,proformaQty,undeliveredQty,availForSale,mCommitDrill,commitDrillTitle,commitDrillRows,commitDrillKind,openCommitDrill,openCommitDrillDoc,
 irdSettings,irdSettingsErr,savingIrd,loadIrdSettings,previewIrdNumber,saveIrdSettings,
-  isDark,toggleTheme,mCoSettings,coSettings,saveCoSettings,
+  isDark,toggleTheme,mCoSettings,coSettings,saveCoSettings,loadCoSettings,onLogoUpload,
+  amountInWords,lineStockWarning,
   mPrintInv,printInv,printTpl,printColor,printShowTax,printShowNotes,invPreviewStyle,printInvoice,doPrint,
   ledgerAccs,mLedgerAcc,eLedgerAcc,mJournalEntry,eJournalEntry,openJournalEntry,saveJournalEntry,mQuickJournal,eQuickJournal,qjAccountGroups,openQuickJournal,onQJTypeChange,onQJDebitChange,onQJCreditChange,saveQuickJournal,mLedgerAccDetail,ledgerAccDetail,mEditLedgerEntry,eEditLedgerEntry,editLedgerEntry,saveLedgerEntry,delLedgerEntry,ledgerAccsByType,loadLedgerAccs,openLedgerAcc,saveLedgerAcc,delLedgerAcc,viewLedgerAcc,trialBalance,loadTrialBalance,expAccFilter,onLedgerAccChange};
 }}).mount('#app');
