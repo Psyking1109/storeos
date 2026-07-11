@@ -575,16 +575,27 @@ function printInvoice(inv){
   showLivePreview.value=false;
   mPrintInv.value=true;
 }
-// Keep printInv synced with nInv whenever live preview is active
-watch(nInv,(val)=>{if(showLivePreview.value)printInv.value=JSON.parse(JSON.stringify(val));},{deep:true});
 function doPrint(){
-  // Save current body and replace with just print area
-  const printContent = document.getElementById('inv-print-area').innerHTML;
-  const originalBody = document.body.innerHTML;
-  document.body.innerHTML = '<div style="padding:0;margin:0">'+printContent+'</div>';
-  window.print();
-  document.body.innerHTML = originalBody;
-  window.location.reload();
+  const html=document.getElementById('inv-print-area').innerHTML;
+  const w=window.open('','invoicePrint','width=900,height=1000');
+  if(!w){alert('Please allow popups for this site to print.');return;}
+  w.document.write(
+    '<!doctype html><html><head><title>Invoice</title>'+
+    '<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">'+
+    '<style>'+
+      "body{margin:0;font-family:'DM Sans',sans-serif;background:#f5f5f5}"+
+      '.bar{position:sticky;top:0;display:flex;gap:8px;justify-content:flex-end;'+
+        'padding:12px;background:#fff;border-bottom:1px solid #ddd}'+
+      '.bar button{padding:8px 18px;border-radius:6px;border:none;cursor:pointer;font-size:14px;font-weight:600}'+
+      '.pr{background:#1a5f5a;color:#fff}.cl{background:#eee;color:#333}'+
+      '@media print{.bar{display:none}body{background:#fff}}'+
+    '</style></head><body>'+
+      '<div class="bar"><button class="cl" onclick="window.close()">Close</button>'+
+      '<button class="pr" onclick="window.print()">Print</button></div>'+
+      '<div style="padding:20px">'+html+'</div>'+
+    '</body></html>'
+  );
+  w.document.close();
 }
 
 // ── CATEGORIES ─────────────────────────────────────────────────────────────
@@ -699,6 +710,8 @@ const iSrch=ref('');const iSrchRes=ref([]);const iSrchLoading=ref(false);const p
 const invNoPreview=ref('');
 function fInv(){return{type:'invoice',customer:'',customerName:'Walk-in Customer',customerTin:'',customerAddress:'',customerPhone:'',placeOfSupply:'',dateOfDelivery:'',date:today,dueDate:'',taxInclusive:false,taxInvoice:false,invoiceType:'',invoiceTypeName:'',invTypeTaxConfig:[],toggledTaxes:{},items:[],subtotal:0,taxAmount:0,taxBreakdown:[],discount:0,total:0,paid:0,balance:0,paymentMode:'cash',cashAccount:'',bankAccount:'',chequeNo:'',notes:''};} 
 const nInv=ref(fInv());
+// Keep printInv synced with nInv whenever live preview is active
+watch(nInv,(val)=>{if(showLivePreview.value)printInv.value=JSON.parse(JSON.stringify(val));},{deep:true});
 function fPO(type){return{purchaseType:type||'local',supplier:'',supplierName:'',date:today,currency:'USD',exchangeRate:300,items:[],landingCosts:[],subtotalForeign:0,subtotal:0,taxAmount:0,landingCostTotal:0,total:0,paid:0,balance:0,paymentMode:'cash',updateStock:true,taxInclusive:false,notes:''};} 
 const nPO=ref(fPO());
 const tdate=computed(()=>new Date().toLocaleDateString('en-GB',{weekday:'long',year:'numeric',month:'long',day:'numeric'}));
