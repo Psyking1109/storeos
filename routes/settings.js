@@ -48,6 +48,7 @@ router.put('/', async (req, res) => {
     for (const f of ['companyName','tin','vrn','phone','fax','email','address','website','footer','logoData']) {
       if (req.body[f] !== undefined) update[f] = req.body[f];
     }
+    if (req.body.invoiceLayout !== undefined) update.invoiceLayout = req.body.invoiceLayout;
 
     const settings = await Settings.findByIdAndUpdate('global', update, { new: true, upsert: true });
 

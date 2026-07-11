@@ -85,7 +85,14 @@ function toggleTheme(){
 const mCoSettings=ref(false);
 const coSettings=ref({companyName:'',tin:'',vrn:'',phone:'',fax:'',email:'',address:'',website:'',footer:'Thank you for your business!',logoData:''});
 async function loadCoSettings(){
-  try{const s=await api('GET','/settings');coSettings.value={...coSettings.value,...s};}catch(e){}
+  try{
+    const s=await api('GET','/settings');
+    coSettings.value={...coSettings.value,...s};
+    if(s.invoiceLayout){
+      invoiceLayout.value={...invoiceLayout.value,...s.invoiceLayout};
+      if(s.invoiceLayout.sectionOrder?.length)invoiceLayout.value.sectionOrder=[...s.invoiceLayout.sectionOrder];
+    }
+  }catch(e){}
 }
 async function saveCoSettings(){
   try{
@@ -511,6 +518,35 @@ function lineStockWarning(item){
   return'';
 }
 
+// ── INVOICE LAYOUT (Task 11) ─────────────────────────────────────────────────
+const invoiceLayout=ref({logoShow:true,logoAlign:'left',supplierSide:'left',customerSide:'right',sectionOrder:['parties','meta','items','totals','payment'],showTaxBreakdown:true,accentColor:'#1a5f5a',fontColor:'#12312e'});
+async function saveInvoiceLayout(){try{await api('PUT','/settings',{invoiceLayout:invoiceLayout.value});}catch(e){mErr.value=e.message;}}
+let _layoutDragIdx=null;
+function layoutDragStart(idx){_layoutDragIdx=idx;}
+function layoutDragOver(e){e.preventDefault();}
+function layoutDrop(idx){
+  if(_layoutDragIdx===null||_layoutDragIdx===idx)return;
+  const arr=[...invoiceLayout.value.sectionOrder];
+  const[moved]=arr.splice(_layoutDragIdx,1);
+  arr.splice(idx,0,moved);
+  invoiceLayout.value.sectionOrder=arr;
+  _layoutDragIdx=null;
+}
+function layoutMoveUp(idx){
+  if(idx===0)return;
+  const arr=[...invoiceLayout.value.sectionOrder];
+  [arr[idx-1],arr[idx]]=[arr[idx],arr[idx-1]];
+  invoiceLayout.value.sectionOrder=arr;
+}
+function layoutMoveDown(idx){
+  const arr=invoiceLayout.value.sectionOrder;
+  if(idx>=arr.length-1)return;
+  const copy=[...arr];
+  [copy[idx+1],copy[idx]]=[copy[idx],copy[idx+1]];
+  invoiceLayout.value.sectionOrder=copy;
+}
+const SECTION_LABELS={'parties':'Purchaser Details','meta':'Delivery / Supply Info','items':'Items Table','totals':'Totals & Tax','payment':'Payment Mode'};
+
 // ── PRINT INVOICE ────────────────────────────────────────────────────────────
 const mPrintInv=ref(false);
 const printInv=ref({});
@@ -518,12 +554,29 @@ const printTpl=ref('classic');
 const printColor=ref('#2563eb');
 const printShowTax=ref(true);
 const printShowNotes=ref(true);
+const showLivePreview=ref(false);
 const invPreviewStyle=computed(()=>({background:'#fff',color:'#222',fontFamily:"'DM Sans',sans-serif",padding:'24px 28px',borderRadius:'8px',minHeight:'700px',boxShadow:'0 2px 20px rgba(0,0,0,.08)'}));
+
+// printTaxRows: derives tax breakdown from stored taxBreakdown or falls back to per-line taxLines
+// for invoices created before Task 10a schema fix (which had taxBreakdown stripped by Mongoose)
+const printTaxRows=computed(()=>{
+  const inv=printInv.value||{};
+  if(inv.taxBreakdown&&inv.taxBreakdown.length)return inv.taxBreakdown.filter(t=>!t.businessTax);
+  const m={};
+  (inv.items||[]).forEach(it=>(it.taxLines||[]).filter(t=>!t.businessTax).forEach(tl=>{
+    m[tl.taxCode]=m[tl.taxCode]||{taxCode:tl.taxCode,taxName:tl.taxName,rate:tl.rate,amount:0};
+    m[tl.taxCode].amount+=tl.amount||0;
+  }));
+  return Object.values(m);
+});
 
 function printInvoice(inv){
   printInv.value={...inv};
+  showLivePreview.value=false;
   mPrintInv.value=true;
 }
+// Keep printInv synced with nInv whenever live preview is active
+watch(nInv,(val)=>{if(showLivePreview.value)printInv.value=JSON.parse(JSON.stringify(val));},{deep:true});
 function doPrint(){
   // Save current body and replace with just print area
   const printContent = document.getElementById('inv-print-area').innerHTML;
@@ -1345,7 +1398,8 @@ commitSummary,loadCommitSummary,proformaQty,undeliveredQty,availForSale,mCommitD
 irdSettings,irdSettingsErr,savingIrd,loadIrdSettings,previewIrdNumber,saveIrdSettings,
   isDark,toggleTheme,mCoSettings,coSettings,saveCoSettings,loadCoSettings,onLogoUpload,
   amountInWords,lineStockWarning,
-  mPrintInv,printInv,printTpl,printColor,printShowTax,printShowNotes,invPreviewStyle,printInvoice,doPrint,
+  invoiceLayout,saveInvoiceLayout,layoutDragStart,layoutDragOver,layoutDrop,layoutMoveUp,layoutMoveDown,SECTION_LABELS,
+  mPrintInv,printInv,printTpl,printColor,printShowTax,printShowNotes,printTaxRows,showLivePreview,invPreviewStyle,printInvoice,doPrint,
   ledgerAccs,mLedgerAcc,eLedgerAcc,mJournalEntry,eJournalEntry,openJournalEntry,saveJournalEntry,mQuickJournal,eQuickJournal,qjAccountGroups,openQuickJournal,onQJTypeChange,onQJDebitChange,onQJCreditChange,saveQuickJournal,mLedgerAccDetail,ledgerAccDetail,mEditLedgerEntry,eEditLedgerEntry,editLedgerEntry,saveLedgerEntry,delLedgerEntry,ledgerAccsByType,loadLedgerAccs,openLedgerAcc,saveLedgerAcc,delLedgerAcc,viewLedgerAcc,trialBalance,loadTrialBalance,expAccFilter,onLedgerAccChange};
 }}).mount('#app');
 });

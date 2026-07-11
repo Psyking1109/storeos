@@ -16,7 +16,18 @@ const settingsSchema = new mongoose.Schema({
   address:     { type: String, default: '' },
   website:     { type: String, default: '' },
   footer:      { type: String, default: '' },
-  logoData:    { type: String, default: '' } // base64 data-URI, small logos only
+  logoData:    { type: String, default: '' }, // base64 data-URI, small logos only
+  // ── Invoice Layout Designer settings ──
+  invoiceLayout: {
+    logoShow:        { type: Boolean, default: true },
+    logoAlign:       { type: String,  default: 'left' },
+    supplierSide:    { type: String,  default: 'left' },
+    customerSide:    { type: String,  default: 'right' },
+    sectionOrder:    { type: [String], default: ['parties','meta','items','totals','payment'] },
+    showTaxBreakdown:{ type: Boolean, default: true },
+    accentColor:     { type: String,  default: '#1a5f5a' },
+    fontColor:       { type: String,  default: '#12312e' }
+  }
 }, { timestamps: true });
 
 settingsSchema.statics.getSingleton = async function() {

@@ -1255,6 +1255,129 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
         <div style="margin-top:14px"><button class="btn btn-p" @click="saveIrdSettings" :disabled="savingIrd">{{savingIrd?'Saving...':'Save Settings'}}</button></div>
       </div>
     </div>
+
+    <!-- ── Invoice Layout Designer ── -->
+    <div class="card" style="margin-top:18px">
+      <div class="ch"><h3>Invoice Layout Designer</h3><span style="font-size:11px;color:var(--tx3)">Applies to TAX INVOICE (LK) print template</span></div>
+      <div class="cb">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+          <!-- Left column: controls -->
+          <div style="display:flex;flex-direction:column;gap:14px">
+
+            <!-- Logo -->
+            <div class="fl">
+              <label>Logo</label>
+              <div style="display:flex;gap:8px;align-items:center">
+                <button class="btn btn-sm" :class="invoiceLayout.logoShow?'btn-p':'btn-o'" @click="invoiceLayout.logoShow=!invoiceLayout.logoShow">{{invoiceLayout.logoShow?'Visible':'Hidden'}}</button>
+                <template v-if="invoiceLayout.logoShow">
+                  <button class="btn btn-sm" :class="invoiceLayout.logoAlign==='left'?'btn-b':'btn-o'" @click="invoiceLayout.logoAlign='left'">Left</button>
+                  <button class="btn btn-sm" :class="invoiceLayout.logoAlign==='center'?'btn-b':'btn-o'" @click="invoiceLayout.logoAlign='center'">Center</button>
+                  <button class="btn btn-sm" :class="invoiceLayout.logoAlign==='right'?'btn-b':'btn-o'" @click="invoiceLayout.logoAlign='right'">Right</button>
+                </template>
+              </div>
+            </div>
+
+            <!-- Supplier / Customer sides -->
+            <div class="fl">
+              <label>Supplier &amp; Customer Columns</label>
+              <div style="display:flex;gap:8px;align-items:center">
+                <div style="font-size:12px;color:var(--tx2)">Supplier on</div>
+                <button class="btn btn-sm" :class="invoiceLayout.supplierSide==='left'?'btn-b':'btn-o'" @click="invoiceLayout.supplierSide='left';invoiceLayout.customerSide='right'">Left</button>
+                <button class="btn btn-sm" :class="invoiceLayout.supplierSide==='right'?'btn-b':'btn-o'" @click="invoiceLayout.supplierSide='right';invoiceLayout.customerSide='left'">Right</button>
+              </div>
+            </div>
+
+            <!-- Colours -->
+            <div class="fl">
+              <label>Appearance</label>
+              <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--tx2);font-weight:400">
+                  <input type="color" v-model="invoiceLayout.accentColor" style="width:36px;height:28px;border:1px solid var(--brd2);border-radius:4px;cursor:pointer;padding:1px"/>
+                  Accent colour
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--tx2);font-weight:400">
+                  <input type="color" v-model="invoiceLayout.fontColor" style="width:36px;height:28px;border:1px solid var(--brd2);border-radius:4px;cursor:pointer;padding:1px"/>
+                  Font colour
+                </label>
+              </div>
+            </div>
+
+            <!-- Tax breakdown toggle -->
+            <div class="fl">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" v-model="invoiceLayout.showTaxBreakdown"/>
+                Show tax breakdown on invoice by default
+              </label>
+            </div>
+
+            <!-- Section order -->
+            <div class="fl">
+              <label>Section Order <span style="font-size:10px;color:var(--tx3)">(drag or use arrows)</span></label>
+              <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:4px">
+                <li v-for="(sec,idx) in invoiceLayout.sectionOrder" :key="sec"
+                    draggable="true"
+                    @dragstart="layoutDragStart(idx)"
+                    @dragover="layoutDragOver"
+                    @drop="layoutDrop(idx)"
+                    style="display:flex;align-items:center;gap:8px;background:var(--sur2);border:1px solid var(--brd2);border-radius:var(--r);padding:6px 10px;cursor:grab">
+                  <span style="font-size:14px;color:var(--tx3);cursor:grab">⠿</span>
+                  <span style="flex:1;font-size:12px;color:var(--txt)">{{SECTION_LABELS[sec]||sec}}</span>
+                  <button class="btn btn-o btn-sm" @click="layoutMoveUp(idx)" :disabled="idx===0" style="padding:0 6px">↑</button>
+                  <button class="btn btn-o btn-sm" @click="layoutMoveDown(idx)" :disabled="idx===invoiceLayout.sectionOrder.length-1" style="padding:0 6px">↓</button>
+                </li>
+              </ul>
+            </div>
+
+            <div><button class="btn btn-p" @click="saveInvoiceLayout">💾 Save Layout</button></div>
+          </div>
+
+          <!-- Right column: mini-preview -->
+          <div>
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);margin-bottom:8px;font-weight:700">Preview (TAX INVOICE LK)</div>
+            <div style="border:1.5px solid var(--brd2);border-radius:var(--r);overflow:hidden;transform:scale(0.6);transform-origin:top left;width:167%;min-height:320px;background:#fff">
+              <div :style="`border:2px solid ${invoiceLayout.accentColor};font-size:11px;color:${invoiceLayout.fontColor}`">
+                <!-- Mini header -->
+                <div :style="`display:flex;${invoiceLayout.supplierSide==='right'?'flex-direction:row-reverse':''};border-bottom:1px solid ${invoiceLayout.accentColor}`">
+                  <div style="flex:1;padding:10px 12px;border-right:1px solid #ccc">
+                    <div v-if="invoiceLayout.logoShow&&coSettings.logoData" :style="`text-align:${invoiceLayout.logoAlign};margin-bottom:4px`"><img :src="coSettings.logoData" style="max-height:40px"/></div>
+                    <div style="font-weight:700">{{coSettings.companyName||'Your Company'}}</div>
+                    <div style="font-size:10px;color:#888">{{coSettings.address}}</div>
+                  </div>
+                  <div style="padding:10px 12px;min-width:160px">
+                    <div :style="`font-size:14px;font-weight:800;text-transform:uppercase;color:${invoiceLayout.accentColor}`">TAX INVOICE</div>
+                    <div style="font-size:10px;color:#888;margin-top:4px">No. INV-0001</div>
+                  </div>
+                </div>
+                <!-- Mini sections in order -->
+                <template v-for="sec in invoiceLayout.sectionOrder" :key="sec">
+                  <div v-if="sec==='parties'" style="padding:8px 12px;border-bottom:1px solid #eee;font-size:10px">
+                    <div style="font-weight:700;color:#888;margin-bottom:3px">PURCHASER DETAILS</div>
+                    <div>TIN: —</div><div>Name: Walk-in Customer</div>
+                  </div>
+                  <div v-if="sec==='meta'" style="padding:6px 12px;border-bottom:1px solid #eee;font-size:10px;color:#888">
+                    Date of Delivery: — · Place of Supply: —
+                  </div>
+                  <div v-if="sec==='items'" style="padding:8px 12px;border-bottom:1px solid #eee">
+                    <div :style="`background:${invoiceLayout.accentColor}22;padding:4px 8px;font-size:10px;font-weight:700;display:flex;gap:30px`">
+                      <span style="flex:2">Description</span><span>Qty</span><span>Amount</span>
+                    </div>
+                    <div style="font-size:10px;padding:4px 8px;color:#aaa">— items will appear here —</div>
+                  </div>
+                  <div v-if="sec==='totals'" style="padding:8px 12px;border-bottom:1px solid #eee;font-size:10px">
+                    <div v-if="invoiceLayout.showTaxBreakdown" style="color:#888;margin-bottom:2px">VAT (18%): 0.00</div>
+                    <div :style="`font-weight:700;color:${invoiceLayout.accentColor}`">TOTAL: 0.00</div>
+                  </div>
+                  <div v-if="sec==='payment'" style="padding:6px 12px;font-size:10px;color:#888">
+                    Payment: Cash ☑ Credit ☐ Cheque ☐ Bank Transfer ☐
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -2336,7 +2459,11 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
         </div>
       </div>
     </div>
-    <div class="mf"><button class="btn btn-o" @click="mInv=false">Cancel</button><button class="btn btn-p" @click="saveInv" :disabled="saving||!nInv.items.length">{{saving?'Saving...':(nInv.type==='proforma'?'Create Proforma':'Create Invoice')}}</button></div>
+    <div class="mf">
+      <button class="btn btn-o" @click="mInv=false">Cancel</button>
+      <button class="btn btn-b" @click="showLivePreview=true;printInv={...nInv};printTpl='tax_lk';mPrintInv=true" title="Open live preview of this invoice">🔍 Preview</button>
+      <button class="btn btn-p" @click="saveInv" :disabled="saving||!nInv.items.length">{{saving?'Saving...':(nInv.type==='proforma'?'Create Proforma':'Create Invoice')}}</button>
+    </div>
   </div>
 </div>
 
@@ -2889,10 +3016,13 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
 <div class="mo" v-if="mPrintInv" style="align-items:flex-start;padding-top:20px;overflow-y:auto">
   <div class="md" style="max-width:860px;width:95%;margin:0 auto">
     <div class="mh" id="no-print">
-      <h3>🖨 Print Invoice</h3>
+      <div>
+        <h3>{{showLivePreview?'🔍 Live Preview':'🖨 Preview / Print'}}</h3>
+        <div v-if="showLivePreview" style="font-size:11px;color:var(--acc);margin-top:2px">Updates as you edit the invoice</div>
+      </div>
       <div style="display:flex;gap:8px;align-items:center">
         <button class="btn btn-g" @click="doPrint" style="display:flex;align-items:center;gap:6px">🖨 Print / Save PDF</button>
-        <button class="xbtn" @click="mPrintInv=false">×</button>
+        <button class="xbtn" @click="mPrintInv=false;showLivePreview=false">×</button>
       </div>
     </div>
     <div class="mb" style="padding:0">
@@ -3000,11 +3130,12 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
 
           <!-- TAX INVOICE (LK) template — self-contained, replaces items/totals/footer -->
           <template v-if="printTpl==='tax_lk'">
-            <div style="border:2px solid #000;font-size:12px;color:#000">
+            <div :style="'border:2px solid '+invoiceLayout.accentColor+';font-size:12px;color:'+invoiceLayout.fontColor">
+              <!-- HEADER: supplier info + invoice title, columns swap based on supplierSide -->
               <table style="width:100%;border-collapse:collapse">
-                <tr>
-                  <td style="width:55%;padding:12px 14px;vertical-align:top;border-right:1px solid #000">
-                    <div v-if="coSettings.logoData" style="margin-bottom:8px"><img :src="coSettings.logoData" style="max-height:64px;max-width:130px"/></div>
+                <tr v-if="invoiceLayout.supplierSide==='left'">
+                  <td style="width:55%;padding:12px 14px;vertical-align:top" :style="'border-right:1px solid '+invoiceLayout.accentColor">
+                    <div v-if="invoiceLayout.logoShow&&coSettings.logoData" style="margin-bottom:8px" :style="'text-align:'+invoiceLayout.logoAlign"><img :src="coSettings.logoData" style="max-height:64px;max-width:130px"/></div>
                     <div style="font-size:15px;font-weight:700">{{coSettings.companyName}}</div>
                     <div v-if="coSettings.address" style="margin-top:3px;line-height:1.5;white-space:pre-line">{{coSettings.address}}</div>
                     <div v-if="coSettings.phone">Tel: {{coSettings.phone}}</div>
@@ -3014,90 +3145,114 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
                     <div v-if="coSettings.vrn">VAT Reg: <strong>{{coSettings.vrn}}</strong></div>
                   </td>
                   <td style="padding:12px 14px;vertical-align:top">
-                    <div style="font-size:19px;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">{{printInv.taxInvoice===false?'INVOICE':'TAX INVOICE'}}</div>
+                    <div style="font-size:19px;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px" :style="'color:'+invoiceLayout.accentColor">{{printInv.taxInvoice===false?'INVOICE':'TAX INVOICE'}}</div>
                     <table style="width:100%;border-collapse:collapse">
-                      <tr><td style="color:#555;padding:3px 0;width:55%">Date of Invoice:</td><td style="font-weight:600;padding:3px 0">{{fd(printInv.date)}}</td></tr>
-                      <tr><td style="color:#555;padding:3px 0">Tax Invoice No.:</td><td style="font-weight:600;padding:3px 0;font-family:monospace">{{printInv.invoiceNo}}</td></tr>
+                      <tr><td style="padding:3px 0;width:55%">Date of Invoice:</td><td style="font-weight:600;padding:3px 0">{{fd(printInv.date)}}</td></tr>
+                      <tr><td style="padding:3px 0">Tax Invoice No.:</td><td style="font-weight:600;padding:3px 0;font-family:monospace">{{printInv.invoiceNo}}</td></tr>
                     </table>
                   </td>
                 </tr>
-              </table>
-              <div style="border-top:1px solid #000;padding:10px 14px">
-                <div style="font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#555;margin-bottom:5px">Purchaser Details</div>
-                <table style="width:100%;border-collapse:collapse">
-                  <tr>
-                    <td style="width:50%;vertical-align:top;padding-right:10px">
-                      <div>Purchaser's TIN: <strong>{{printInv.customerTin||'—'}}</strong></div>
-                      <div style="margin-top:2px">Name: <strong>{{printInv.customerName}}</strong></div>
-                      <div v-if="printInv.customerAddress" style="margin-top:2px">Address: {{printInv.customerAddress}}</div>
-                      <div v-if="printInv.customerPhone" style="margin-top:2px">Tel: {{printInv.customerPhone}}</div>
-                    </td>
-                    <td style="vertical-align:top">
-                      <div v-if="printInv.dateOfDelivery">Date of Delivery: <strong>{{fd(printInv.dateOfDelivery)}}</strong></div>
-                      <div v-if="printInv.placeOfSupply" style="margin-top:2px">Place of Supply: {{printInv.placeOfSupply}}</div>
-                    </td>
-                  </tr>
-                </table>
-                <div v-if="printInv.notes" style="margin-top:5px">Additional Information: {{printInv.notes}}</div>
-              </div>
-              <table style="width:100%;border-collapse:collapse;border-top:1px solid #000">
-                <thead>
-                  <tr style="background:#f0f0f0">
-                    <th style="padding:6px 8px;text-align:left;border:1px solid #bbb;width:12%">Reference</th>
-                    <th style="padding:6px 8px;text-align:left;border:1px solid #bbb">Description of Goods / Services</th>
-                    <th style="padding:6px 8px;text-align:center;border:1px solid #bbb;width:13%">Quantity</th>
-                    <th style="padding:6px 8px;text-align:right;border:1px solid #bbb;width:14%">Unit Price (Rs.)</th>
-                    <th style="padding:6px 8px;text-align:right;border:1px solid #bbb;width:17%">Amount Excl. VAT (Rs.)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(item,i) in (printInv.items||[])" :key="i">
-                    <td style="padding:6px 8px;border:1px solid #ddd">{{item.sku||''}}</td>
-                    <td style="padding:6px 8px;border:1px solid #ddd">{{item.productName}}</td>
-                    <td style="padding:6px 8px;text-align:center;border:1px solid #ddd">{{item.qty}} {{item.unit}}</td>
-                    <td style="padding:6px 8px;text-align:right;border:1px solid #ddd;font-family:monospace">{{f(item.unitPrice)}}</td>
-                    <td style="padding:6px 8px;text-align:right;border:1px solid #ddd;font-family:monospace">{{f(item.lineSubtotal)}}</td>
-                  </tr>
-                </tbody>
-              </table>
-              <table style="width:100%;border-collapse:collapse;border-top:2px solid #000">
-                <tr style="border-bottom:1px solid #ddd">
-                  <td style="padding:6px 10px;width:45%"></td>
-                  <td style="padding:6px 10px;color:#555">Total Value of Supply</td>
-                  <td style="padding:6px 10px;text-align:right;font-family:monospace;font-weight:600;width:18%">{{f(printInv.subtotal)}}</td>
-                </tr>
-                <tr v-for="tl in (printInv.taxBreakdown||[]).filter(t=>!t.businessTax)" :key="tl.taxCode" style="border-bottom:1px solid #ddd">
-                  <td></td>
-                  <td style="padding:6px 10px;color:#555">VAT Amount ({{tl.rate}}%)</td>
-                  <td style="padding:6px 10px;text-align:right;font-family:monospace;font-weight:600">{{f(tl.amount)}}</td>
-                </tr>
-                <tr v-if="printInv.discount" style="border-bottom:1px solid #ddd">
-                  <td></td>
-                  <td style="padding:6px 10px;color:#555">Discount</td>
-                  <td style="padding:6px 10px;text-align:right;font-family:monospace;color:#c00">({{f(printInv.discount)}})</td>
-                </tr>
-                <tr style="background:#f5f5f5;border-top:2px solid #000;border-bottom:2px solid #000">
-                  <td></td>
-                  <td style="padding:8px 10px;font-weight:700;font-size:13px">Total Amount including VAT</td>
-                  <td style="padding:8px 10px;text-align:right;font-family:monospace;font-weight:700;font-size:13px">{{f(printInv.total)}}</td>
-                </tr>
-                <tr style="border-bottom:1px solid #ddd">
-                  <td colspan="3" style="padding:8px 10px">
-                    <span style="color:#555">Total Amount in Words:</span>
-                    <div style="font-weight:600;margin-top:2px;font-style:italic">{{amountInWords(printInv.total)}}</div>
+                <tr v-else>
+                  <td style="width:45%;padding:12px 14px;vertical-align:top" :style="'border-right:1px solid '+invoiceLayout.accentColor">
+                    <div style="font-size:19px;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px" :style="'color:'+invoiceLayout.accentColor">{{printInv.taxInvoice===false?'INVOICE':'TAX INVOICE'}}</div>
+                    <table style="width:100%;border-collapse:collapse">
+                      <tr><td style="padding:3px 0;width:55%">Date of Invoice:</td><td style="font-weight:600;padding:3px 0">{{fd(printInv.date)}}</td></tr>
+                      <tr><td style="padding:3px 0">Tax Invoice No.:</td><td style="font-weight:600;padding:3px 0;font-family:monospace">{{printInv.invoiceNo}}</td></tr>
+                    </table>
+                  </td>
+                  <td style="padding:12px 14px;vertical-align:top">
+                    <div v-if="invoiceLayout.logoShow&&coSettings.logoData" style="margin-bottom:8px" :style="'text-align:'+invoiceLayout.logoAlign"><img :src="coSettings.logoData" style="max-height:64px;max-width:130px"/></div>
+                    <div style="font-size:15px;font-weight:700">{{coSettings.companyName}}</div>
+                    <div v-if="coSettings.address" style="margin-top:3px;line-height:1.5;white-space:pre-line">{{coSettings.address}}</div>
+                    <div v-if="coSettings.phone">Tel: {{coSettings.phone}}</div>
+                    <div v-if="coSettings.fax">Fax: {{coSettings.fax}}</div>
+                    <div v-if="coSettings.email">E-mail: {{coSettings.email}}</div>
+                    <div v-if="coSettings.tin" style="margin-top:4px">Supplier's TIN: <strong>{{coSettings.tin}}</strong></div>
+                    <div v-if="coSettings.vrn">VAT Reg: <strong>{{coSettings.vrn}}</strong></div>
                   </td>
                 </tr>
               </table>
-              <div style="padding:8px 14px;font-size:12px">
-                <span style="color:#555;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px">Mode of Payment: </span>
-                <span style="margin-left:10px">
-                  <span style="margin-right:14px"><span style="display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:3px;text-align:center;line-height:10px;font-size:9px">{{(printInv.paymentMode||'')==='cash'?'✓':''}}</span>Cash</span>
-                  <span style="margin-right:14px"><span style="display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:3px;text-align:center;line-height:10px;font-size:9px">{{(printInv.paymentMode||'')==='credit'?'✓':''}}</span>Credit</span>
-                  <span style="margin-right:14px"><span style="display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:3px;text-align:center;line-height:10px;font-size:9px">{{(printInv.paymentMode||'')==='cheque'?'✓':''}}</span>Cheque</span>
-                  <span><span style="display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:3px;text-align:center;line-height:10px;font-size:9px">{{(printInv.paymentMode||'')==='bank'?'✓':''}}</span>Bank Transfer</span>
-                </span>
-              </div>
-              <div v-if="coSettings.footer" style="border-top:1px solid #ddd;padding:6px 14px;text-align:center;color:#777;font-size:11px">{{coSettings.footer}}</div>
+              <!-- BODY SECTIONS in invoiceLayout.sectionOrder order -->
+              <template v-for="sec in invoiceLayout.sectionOrder" :key="sec">
+                <!-- parties: Purchaser Details -->
+                <div v-if="sec==='parties'" :style="'border-top:1px solid '+invoiceLayout.accentColor+';padding:10px 14px'">
+                  <div style="font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px" :style="'color:'+invoiceLayout.accentColor">Purchaser Details</div>
+                  <div>Purchaser's TIN: <strong>{{printInv.customerTin||'—'}}</strong></div>
+                  <div style="margin-top:2px">Name: <strong>{{printInv.customerName}}</strong></div>
+                  <div v-if="printInv.customerAddress" style="margin-top:2px">Address: {{printInv.customerAddress}}</div>
+                  <div v-if="printInv.customerPhone" style="margin-top:2px">Tel: {{printInv.customerPhone}}</div>
+                </div>
+                <!-- meta: Delivery / Supply Info -->
+                <div v-if="sec==='meta'" :style="'border-top:1px solid '+invoiceLayout.accentColor+';padding:10px 14px'">
+                  <div style="font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px" :style="'color:'+invoiceLayout.accentColor">Delivery / Supply Info</div>
+                  <div v-if="printInv.dateOfDelivery">Date of Delivery: <strong>{{fd(printInv.dateOfDelivery)}}</strong></div>
+                  <div v-if="printInv.placeOfSupply" style="margin-top:2px">Place of Supply: {{printInv.placeOfSupply}}</div>
+                  <div v-if="printInv.notes" style="margin-top:5px">Additional Information: {{printInv.notes}}</div>
+                </div>
+                <!-- items: Items Table -->
+                <table v-if="sec==='items'" style="width:100%;border-collapse:collapse" :style="'border-top:1px solid '+invoiceLayout.accentColor">
+                  <thead>
+                    <tr :style="'background:'+invoiceLayout.accentColor+'22'">
+                      <th style="padding:6px 8px;text-align:left;border:1px solid #bbb;width:12%">Reference</th>
+                      <th style="padding:6px 8px;text-align:left;border:1px solid #bbb">Description of Goods / Services</th>
+                      <th style="padding:6px 8px;text-align:center;border:1px solid #bbb;width:13%">Quantity</th>
+                      <th style="padding:6px 8px;text-align:right;border:1px solid #bbb;width:14%">Unit Price (Rs.)</th>
+                      <th style="padding:6px 8px;text-align:right;border:1px solid #bbb;width:17%">Amount Excl. VAT (Rs.)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(item,i) in (printInv.items||[])" :key="i">
+                      <td style="padding:6px 8px;border:1px solid #ddd">{{item.sku||''}}</td>
+                      <td style="padding:6px 8px;border:1px solid #ddd">{{item.productName}}</td>
+                      <td style="padding:6px 8px;text-align:center;border:1px solid #ddd">{{item.qty}} {{item.unit}}</td>
+                      <td style="padding:6px 8px;text-align:right;border:1px solid #ddd;font-family:monospace">{{f(item.unitPrice)}}</td>
+                      <td style="padding:6px 8px;text-align:right;border:1px solid #ddd;font-family:monospace">{{f(item.lineSubtotal)}}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <!-- totals: Totals & Tax -->
+                <table v-if="sec==='totals'" style="width:100%;border-collapse:collapse" :style="'border-top:2px solid '+invoiceLayout.accentColor">
+                  <tr style="border-bottom:1px solid #ddd">
+                    <td style="padding:6px 10px;width:45%"></td>
+                    <td style="padding:6px 10px">Total Value of Supply</td>
+                    <td style="padding:6px 10px;text-align:right;font-family:monospace;font-weight:600;width:18%">{{f(printInv.subtotal)}}</td>
+                  </tr>
+                  <template v-if="invoiceLayout.showTaxBreakdown">
+                    <tr v-for="tl in printTaxRows" :key="tl.taxCode" style="border-bottom:1px solid #ddd">
+                      <td></td>
+                      <td style="padding:6px 10px">VAT Amount ({{tl.rate}}%)</td>
+                      <td style="padding:6px 10px;text-align:right;font-family:monospace;font-weight:600">{{f(tl.amount)}}</td>
+                    </tr>
+                  </template>
+                  <tr v-if="printInv.discount" style="border-bottom:1px solid #ddd">
+                    <td></td>
+                    <td style="padding:6px 10px">Discount</td>
+                    <td style="padding:6px 10px;text-align:right;font-family:monospace;color:#c00">({{f(printInv.discount)}})</td>
+                  </tr>
+                  <tr :style="'background:'+invoiceLayout.accentColor+'15;border-top:2px solid '+invoiceLayout.accentColor+';border-bottom:2px solid '+invoiceLayout.accentColor">
+                    <td></td>
+                    <td style="padding:8px 10px;font-weight:700;font-size:13px">Total Amount including VAT</td>
+                    <td style="padding:8px 10px;text-align:right;font-family:monospace;font-weight:700;font-size:13px" :style="'color:'+invoiceLayout.accentColor">{{f(printInv.total)}}</td>
+                  </tr>
+                  <tr style="border-bottom:1px solid #ddd">
+                    <td colspan="3" style="padding:8px 10px">
+                      <span>Total Amount in Words:</span>
+                      <div style="font-weight:600;margin-top:2px;font-style:italic">{{amountInWords(printInv.total)}}</div>
+                    </td>
+                  </tr>
+                </table>
+                <!-- payment: Payment Mode -->
+                <div v-if="sec==='payment'" style="padding:8px 14px;font-size:12px">
+                  <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px" :style="'color:'+invoiceLayout.accentColor">Mode of Payment: </span>
+                  <span style="margin-left:10px">
+                    <span style="margin-right:14px"><span style="display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:3px;text-align:center;line-height:10px;font-size:9px">{{(printInv.paymentMode||'')==='cash'?'✓':''}}</span>Cash</span>
+                    <span style="margin-right:14px"><span style="display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:3px;text-align:center;line-height:10px;font-size:9px">{{(printInv.paymentMode||'')==='credit'?'✓':''}}</span>Credit</span>
+                    <span style="margin-right:14px"><span style="display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:3px;text-align:center;line-height:10px;font-size:9px">{{(printInv.paymentMode||'')==='cheque'?'✓':''}}</span>Cheque</span>
+                    <span><span style="display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:3px;text-align:center;line-height:10px;font-size:9px">{{(printInv.paymentMode||'')==='bank'?'✓':''}}</span>Bank Transfer</span>
+                  </span>
+                </div>
+              </template>
+              <div v-if="coSettings.footer" :style="'border-top:1px solid '+invoiceLayout.accentColor+'55;padding:6px 14px;text-align:center;color:#777;font-size:11px'">{{coSettings.footer}}</div>
             </div>
           </template>
 
@@ -3129,9 +3284,9 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <!-- TOTALS -->
           <div style="display:flex;justify-content:flex-end;margin-bottom:20px">
             <div style="width:280px">
-              <div v-if="printShowTax&&(printInv.taxBreakdown||[]).filter(t=>!t.businessTax).length" style="margin-bottom:8px;padding:10px 12px;background:#f9f9f9;border-radius:6px">
+              <div v-if="printShowTax&&printTaxRows.length" style="margin-bottom:8px;padding:10px 12px;background:#f9f9f9;border-radius:6px">
                 <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:6px;font-weight:700">Tax Breakdown</div>
-                <div v-for="tl in (printInv.taxBreakdown||[]).filter(t=>!t.businessTax)" :key="tl.taxCode" style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+                <div v-for="tl in printTaxRows" :key="tl.taxCode" style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
                   <span style="color:#555">{{tl.taxCode}} ({{tl.rate}}%)</span>
                   <span style="font-family:monospace;color:#333">{{f(tl.amount)}}</span>
                 </div>
