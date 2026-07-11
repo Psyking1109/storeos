@@ -192,6 +192,8 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
   </div>
   <div class="ns"><div class="nl">Sales</div>
     <div class="ni" :class="{active:pg==='inv'}"  @click="pg='inv'"><span class="ic">📋</span>Invoices</div>
+    <div class="ni" :class="{active:pg==='pro'}"  @click="pg='pro'"><span class="ic">📝</span>Proformas</div>
+    <div class="ni" :class="{active:pg==='undel'}" @click="pg='undel'"><span class="ic">🚚</span>Undelivered</div>
     <div class="ni" :class="{active:pg==='cust'}" @click="pg='cust'"><span class="ic">👥</span>Customers</div>
   </div>
   <template v-if="can('manager')">
@@ -202,6 +204,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
   </template>
   <div class="ns"><div class="nl">Stock</div>
     <div class="ni" :class="{active:pg==='stk'}"  @click="pg='stk'"><span class="ic">📦</span>Inventory<span v-if="lowStock>0" class="nbadge">{{lowStock}}</span></div>
+    <div class="ni" :class="{active:pg==='cat'}"  @click="pg='cat'"><span class="ic">🏷</span>Categories</div>
   </div>
   <div class="ns"><div class="nl">Accounts</div>
     <div class="ni" :class="{active:pg==='cash'}" @click="pg='cash'"><span class="ic">💵</span>Cash Accounts</div>
@@ -304,7 +307,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
         <option value="">All Categories</option>
         <option v-for="c in savedCats" :key="c._id" :value="c.name">{{c.name}}</option>
       </select>
-      <button class="btn btn-b btn-sm" @click="mCat=true;eCat={}">+ Category</button>
+      <button class="btn btn-b btn-sm" @click="pg='cat'">Categories</button>
       <button class="btn btn-p" @click="openProd()">+ New Product</button>
     </div>
   </div>
@@ -369,17 +372,27 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       </table></div></div>
     </template>
 
-    <!-- Category management cards -->
-    <div style="margin-top:16px">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--tx3);margin-bottom:8px;padding:0 4px">Manage Categories</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <div v-for="c in savedCats" :key="c._id" style="background:var(--sur2);border:1px solid var(--brd2);border-radius:var(--r);padding:6px 12px;display:flex;align-items:center;gap:8px">
+  </div>
+</template>
+
+<!-- CATEGORIES -->
+<template v-if="pg==='cat'">
+  <div class="topbar"><h2>Categories</h2>
+    <div class="tba">
+      <button class="btn btn-p" @click="mCat=true;eCat={}">+ New Category</button>
+    </div>
+  </div>
+  <div class="content">
+    <div class="card">
+      <div class="ch"><h3>Product Categories</h3></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;padding:14px 16px">
+        <div v-for="c in savedCats" :key="c._id" style="background:var(--sur2);border:1px solid var(--brd2);border-radius:var(--r);padding:8px 14px;display:flex;align-items:center;gap:10px">
           <span style="font-size:13px;font-weight:600;color:var(--txt)">{{c.name}}</span>
           <span v-if="c.description" style="font-size:11px;color:var(--tx3)">{{c.description}}</span>
-          <button class="btn btn-o btn-sm" @click="mCat=true;eCat={...c}" style="padding:2px 8px;font-size:10px">Edit</button>
-          <button class="btn btn-d btn-sm" @click="delCat(c._id)" style="padding:2px 8px;font-size:10px">×</button>
+          <button class="btn btn-o btn-sm" @click="mCat=true;eCat={...c}">Edit</button>
+          <button class="btn btn-d btn-sm" @click="delCat(c._id)">×</button>
         </div>
-        <button class="btn btn-b btn-sm" @click="mCat=true;eCat={}" style="height:32px">+ New Category</button>
+        <div v-if="!savedCats.length" style="color:var(--tx3);font-size:13px;padding:4px">No categories yet. Click + New Category to add one.</div>
       </div>
     </div>
   </div>
@@ -434,44 +447,43 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
   </div>
 </div>
 
-<!-- INVOICES -->
-<template v-if="pg==='inv'">
-  <div class="topbar"><h2>Invoices</h2>
+<!-- INVOICES / PROFORMAS / UNDELIVERED -->
+<template v-if="pg==='inv'||pg==='pro'||pg==='undel'">
+  <div class="topbar">
+    <h2>{{pg==='pro'?'Proformas':pg==='undel'?'Undelivered':'Invoices'}}</h2>
     <div class="tba">
-      <select v-model="ifilt" @change="loadInvs" class="fc" style="width:115px"><option value="">All Status</option><option value="pending">Pending</option><option value="partial">Partial</option><option value="paid">Paid</option></select>
-      <button class="btn btn-o btn-sm" @click="openNewInv('booking')">+ Booking</button>
-      <button class="btn btn-o btn-sm" @click="openNewInv('proforma')">+ Proforma</button>
-      <button class="btn btn-p" @click="openNewInv('invoice')">+ New Invoice</button>
+      <select v-if="pg==='inv'" v-model="ifilt" @change="loadInvs" class="fc" style="width:115px"><option value="">All Status</option><option value="pending">Pending</option><option value="partial">Partial</option><option value="paid">Paid</option></select>
+      <button v-if="pg==='inv'||pg==='pro'" class="btn btn-o btn-sm" @click="openNewInv('proforma')">+ Proforma</button>
+      <button v-if="pg==='inv'" class="btn btn-p" @click="openNewInv('invoice')">+ New Invoice</button>
     </div>
   </div>
-  <!-- Document type tabs -->
-  <div class="content" style="padding-bottom:0">
-    <div style="display:flex;gap:6px;margin-bottom:12px">
-      <button @click="docTypeFilt='invoice';loadInvs()" class="btn btn-sm" :class="docTypeFilt==='invoice'?'btn-p':'btn-o'">Invoices</button>
-      <button @click="docTypeFilt='booking';loadInvs()" class="btn btn-sm" :class="docTypeFilt==='booking'?'btn-p':'btn-o'">Bookings</button>
-      <button @click="docTypeFilt='proforma';loadInvs()" class="btn btn-sm" :class="docTypeFilt==='proforma'?'btn-p':'btn-o'">Proformas</button>
-      <button @click="docTypeFilt='undelivered';loadInvs()" class="btn btn-sm" :class="docTypeFilt==='undelivered'?'btn-p':'btn-o'">Undelivered</button>
-    </div>
-  </div>
-  <div class="content" style="padding-top:0">
+  <div class="content">
     <div class="card"><div class="tw"><table>
-      <thead><tr><th>Invoice</th><th>Type</th><th>Customer</th><th>Date</th><th>Subtotal</th><th>VAT</th><th>Tax</th><th>Total</th><th>Paid</th><th>Balance</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>No.</th><th>Type</th><th>Customer</th><th>Date</th><th>Subtotal</th><th>VAT</th><th>Tax</th><th>Total</th><th>Paid</th><th>Balance</th><th>Status</th><th></th></tr></thead>
       <tbody>
         <tr v-for="i in invs" :key="i._id">
           <td>
             <span class="mn fw" :class="i.isReturn?'cr':'ca'" style="cursor:pointer;text-decoration:underline;text-underline-offset:3px" @click="openInvDetail(i)">{{i.invoiceNo}}</span>
             <span v-if="i.isReturn" style="font-size:9px;background:rgba(224,82,82,.15);color:var(--red);padding:1px 5px;border-radius:3px;margin-left:4px;font-family:var(--fm)">RETURN</span>
-            <div v-if="i.convertedFromNo" style="font-size:10px;color:var(--tx3);margin-top:2px">Converted from {{i.convertedFromNo}}</div>
-            <div v-if="docTypeFilt==='undelivered'" style="font-size:10px;color:var(--org);margin-top:2px">{{i.items.reduce((s,it)=>s+(it.pendingQty||0),0).toFixed(2)}} units pending</div>
+            <span v-if="i.converted" style="font-size:9px;background:rgba(39,192,122,.15);color:var(--grn);padding:1px 5px;border-radius:3px;margin-left:4px;font-family:var(--fm)">CONVERTED</span>
+            <div v-if="i.convertedFromNo" style="font-size:10px;color:var(--tx3);margin-top:2px">From {{i.convertedFromNo}}</div>
+            <div v-if="i.convertedToNo" style="font-size:10px;color:var(--acc);margin-top:2px">→ {{i.convertedToNo}}</div>
+            <div v-if="pg==='undel'" style="font-size:10px;color:var(--org);margin-top:2px">{{i.items.reduce((s,it)=>s+(it.pendingQty||0),0).toFixed(2)}} units pending</div>
           </td>
           <td class="mn cm" style="font-size:11px">{{i.invoiceTypeName||'—'}}</td>
           <td>{{i.customerName}}</td><td class="mn cm">{{fd(i.date)}}</td>
           <td class="mn">{{f(i.subtotal)}}</td><td class="mn co">{{f(i.vatAmount||0)}}</td><td class="mn">{{f(i.taxAmount||0)}}</td>
           <td class="mn fw">{{f(i.total)}}</td><td class="mn cg">{{f(i.paid)}}</td><td class="mn cr">{{f(i.balance)}}</td>
           <td><span class="badge" :class="bs(i.status)">{{i.status}}</span></td>
-          <td><div class="fx g6"><button v-if="i.balance>0" class="btn btn-g btn-sm" @click="openPay(i,'inv')">Pay</button><button v-if="!i.isReturn&&i.status!=='pending'" class="btn btn-o btn-sm" @click="openReturn(i)">Return</button><button class="btn btn-b btn-sm" @click="printInvoice(i)" title="Print">🖨</button><button class="btn btn-d btn-sm" @click="delInv(i._id)">Del</button></div></td>
+          <td><div class="fx g6">
+            <button v-if="i.type==='proforma'&&!i.converted" class="btn btn-g btn-sm" @click="convertToInvoice(i)" :disabled="converting">{{converting?'…':'→ Invoice'}}</button>
+            <button v-if="i.type==='invoice'&&i.balance>0" class="btn btn-g btn-sm" @click="openPay(i,'inv')">Pay</button>
+            <button v-if="i.type==='invoice'&&!i.isReturn&&i.status!=='pending'" class="btn btn-o btn-sm" @click="openReturn(i)">Return</button>
+            <button class="btn btn-b btn-sm" @click="printInvoice(i)" title="Print">🖨</button>
+            <button class="btn btn-d btn-sm" @click="delInv(i._id)">Del</button>
+          </div></td>
         </tr>
-        <tr v-if="!invs.length"><td colspan="12" class="emp"><div class="eic">📋</div><div>No invoices</div></td></tr>
+        <tr v-if="!invs.length"><td colspan="12" class="emp"><div class="eic">{{pg==='pro'?'📝':pg==='undel'?'🚚':'📋'}}</div><div>{{pg==='pro'?'No proformas':pg==='undel'?'No undelivered invoices':'No invoices'}}</div></td></tr>
       </tbody>
     </table></div></div>
   </div>
@@ -1222,7 +1234,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           Per IRD Gazette Extraordinary No. 2463/05, invoice numbers can follow the format
           <span class="mn ca">YYMMM_QQQQ_XXXXX</span> (e.g. <span class="mn ca">26JUL_HQ01_00001</span>).
           This is optional — your existing invoice numbering keeps working as-is unless you turn this on.
-          This numbering applies to final Invoices only; Bookings/Proformas keep their own ORD-/PRO- numbering.
+          This numbering applies to final Invoices only; Proformas keep their own PRO- numbering.
         </div>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
           <button @click="irdSettings.irdNumberingEnabled=!irdSettings.irdNumberingEnabled" class="btn" :class="irdSettings.irdNumberingEnabled?'btn-p':'btn-o'">
@@ -2143,14 +2155,13 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
 
 <!-- INVOICE MODAL (large) -->
 <div class="mo" v-if="mInv" @click.self="mInv=false">
-  <div class="md md-xl"><div class="mh"><h3>{{nInv.type==='booking'?'New Booking':nInv.type==='proforma'?'New Proforma':'New Invoice'}}</h3><button class="xbtn" @click="mInv=false">×</button></div>
+  <div class="md md-xl"><div class="mh"><h3>{{nInv.type==='proforma'?'New Proforma':'New Invoice'}}</h3><button class="xbtn" @click="mInv=false">×</button></div>
     <div class="mb">
       <div v-if="mErr" class="al al-d">{{mErr}}</div>
       <!-- Document Type Selector -->
       <div class="fl" style="margin-bottom:10px">
         <label>Document Type</label>
         <div style="display:flex;gap:8px">
-          <button @click="nInv.type='booking'" class="btn btn-sm" :class="nInv.type==='booking'?'btn-p':'btn-o'">📋 Booking / Order</button>
           <button @click="nInv.type='proforma'" class="btn btn-sm" :class="nInv.type==='proforma'?'btn-p':'btn-o'">📝 Proforma</button>
           <button @click="nInv.type='invoice'" class="btn btn-sm" :class="nInv.type==='invoice'?'btn-p':'btn-o'">🧾 Invoice</button>
         </div>
@@ -2325,7 +2336,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
         </div>
       </div>
     </div>
-    <div class="mf"><button class="btn btn-o" @click="mInv=false">Cancel</button><button class="btn btn-p" @click="saveInv" :disabled="saving||!nInv.items.length">{{saving?'Saving...':(nInv.type==='booking'?'Create Booking':nInv.type==='proforma'?'Create Proforma':'Create Invoice')}}</button></div>
+    <div class="mf"><button class="btn btn-o" @click="mInv=false">Cancel</button><button class="btn btn-p" @click="saveInv" :disabled="saving||!nInv.items.length">{{saving?'Saving...':(nInv.type==='proforma'?'Create Proforma':'Create Invoice')}}</button></div>
   </div>
 </div>
 
@@ -2789,7 +2800,6 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
         <h3 class="mn ca">{{invDet.invoiceNo}}</h3>
         <span v-if="invDet.taxInvoice" class="badge bpend" style="font-size:10px">TAX INVOICE</span>
         <span class="badge" :class="bs(invDet.status)">{{invDet.status}}</span>
-        <span v-if="invDet.type==='booking'" class="badge" style="background:rgba(240,165,0,.15);color:var(--org)">BOOKING</span>
         <span v-if="invDet.type==='proforma'" class="badge" style="background:rgba(240,165,0,.15);color:var(--org)">PROFORMA</span>
         <span v-if="invDet.type==='invoice'&&invDet.overallDeliveryStatus==='not_delivered'" class="badge" style="background:rgba(224,82,82,.15);color:var(--red)">NOT DELIVERED</span>
         <span v-if="invDet.type==='invoice'&&invDet.overallDeliveryStatus==='partial'" class="badge" style="background:rgba(240,165,0,.15);color:var(--org)">PARTIALLY DELIVERED</span>

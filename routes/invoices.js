@@ -11,11 +11,11 @@ const Counter     = require('../models/Counter');
 const Settings    = require('../models/Settings');
 const { buildIrdNumber } = require('../utils/irdNumbering');
 
-const DOC_PREFIX = { booking: 'ORD', proforma: 'PRO', invoice: 'INV' };
+const DOC_PREFIX = { proforma: 'PRO', invoice: 'INV' };
 
-// Atomic sequential number for Booking/Proforma docs (never skips/repeats under concurrency)
-async function generateBookingOrProformaNumber(type) {
-  const seq = await Counter.next(type); // key: 'booking' | 'proforma'
+// Atomic sequential number for Proforma docs (never skips/repeats under concurrency)
+async function generateProformaNumber(type) {
+  const seq = await Counter.next(type); // key: 'proforma'
   return `${DOC_PREFIX[type]}-${String(seq).padStart(4, '0')}`;
 }
 
@@ -115,7 +115,7 @@ function calcTaxes(items, taxInclusive) {
   return { subtotal, totalTax, businessTaxTotal, breakdown: Object.values(breakdown) };
 }
 
-// GET all invoices (optionally filtered by document type: booking/proforma/invoice)
+// GET all invoices (optionally filtered by document type: proforma/invoice)
 router.get('/', async (req, res) => {
   try {
     const { status, customer, from, to, type, converted, undelivered } = req.query;
@@ -163,7 +163,7 @@ router.post('/', async (req, res) => {
 
     // Document type: defaults to 'invoice' so existing frontend calls (which never send `type`)
     // behave EXACTLY as before — this whole feature is additive/opt-in.
-    const docType = ['booking','proforma','invoice'].includes(data.type) ? data.type : 'invoice';
+    const docType = ['proforma','invoice'].includes(data.type) ? data.type : 'invoice';
     data.type = docType;
 
     // Calculate taxes/totals (same for all three document types — a quote still needs a price)
@@ -182,11 +182,11 @@ router.post('/', async (req, res) => {
     // customer-balance impact. Purely a quote/reservation document.
     // ══════════════════════════════════════════════════════════════
     if (docType !== 'invoice') {
-      data.invoiceNo = await generateBookingOrProformaNumber(docType);
+      data.invoiceNo = await generateProformaNumber(docType);
       data.status = 'draft';
       data.paid = 0;
       data.balance = data.total;
-      // Bookings/proformas never track delivery — force every line to zero
+      // Proformas never track delivery — force every line to zero
       for (const item of data.items || []) {
         item.deliveredQty = 0;
         item.deliveries = [];
@@ -307,7 +307,7 @@ router.post('/', async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-// CONVERT — turn a Booking or Proforma into a real Invoice, one click,
+// CONVERT — turn a Proforma into a real Invoice, one click,
 // carrying over customer/items/pricing with zero re-entry.
 // ══════════════════════════════════════════════════════════════════
 router.post('/:id/convert', async (req, res) => {
@@ -618,7 +618,7 @@ router.delete('/:id', async (req, res) => {
     const inv = await Invoice.findById(req.params.id);
     if (!inv) return res.status(404).json({ error:'Not found' });
     // Restore stock — only the DELIVERED portion was ever deducted, so only restore that much.
-    // Bookings/Proformas never touched stock at all (deliveredQty is always 0 for them).
+    // Proformas never touched stock at all (deliveredQty is always 0 for them).
     for (const item of inv.items||[]) {
       const deliveredAmount = item.deliveredQty || 0;
       if (item.product && deliveredAmount > 0) {

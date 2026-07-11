@@ -736,8 +736,11 @@ async function loadRpt(){if(!rptDate.value)return;expandedRptRows.value=new Set(
 async function loadStmt(){try{const q='from='+stmtFr.value+'&to='+stmtTo.value;stmtRows.value=await api('GET','/banking/accounts/'+stmtAcc.value._id+'/statement?'+q);}catch(e){alert(e.message);}}
 watch(pg,async p=>{
   if(p==='dash')loadDash();
-  if(p==='stk'){loadProds();loadCats();loadTxRates();loadLocs();}
-  if(p==='inv'){loadInvs();loadCusts();loadTxRates();}
+  if(p==='stk'){loadProds();loadCats();loadSavedCats();loadTxRates();loadLocs();}
+  if(p==='cat'){loadSavedCats();}
+  if(p==='inv'){docTypeFilt.value='invoice';loadInvs();loadCusts();loadTxRates();}
+  if(p==='pro'){docTypeFilt.value='proforma';loadInvs();loadCusts();loadTxRates();}
+  if(p==='undel'){docTypeFilt.value='undelivered';loadInvs();}
   if(p==='po'){loadPOs();loadSupps();loadTxRates();}
   if(p==='cust')loadCusts();
   if(p==='sup')loadSupps();
@@ -1108,7 +1111,7 @@ function applyInvTypeTaxesToItems(){
 // ── INVOICE DETAIL ─────────────────────────────────────────────────────────
 function openInvDetail(inv){invDet.value={...inv};mInvDetail.value=true;}
 
-// ── DOCUMENT FLOW: Booking/Proforma → Invoice conversion ──────────────────
+// ── DOCUMENT FLOW: Proforma → Invoice conversion ──────────────────
 const converting=ref(false);
 async function convertToInvoice(doc){
   if(!confirm(`Convert ${doc.invoiceNo} into a final Invoice? This cannot be undone.`))return;

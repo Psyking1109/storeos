@@ -23,14 +23,14 @@ const invoiceItemSchema = new mongoose.Schema({
 
 const invoiceSchema = new mongoose.Schema({
   invoiceNo:    { type: String, required: true, unique: true },
-  // ── Document flow: booking (soft order) → proforma (quote) → invoice (final); credit_note = return against an invoice ──
-  type:         { type: String, enum: ['booking','proforma','invoice','credit_note'], default: 'invoice' },
+  // ── Document flow: proforma (quote) → invoice (final); credit_note = return against an invoice ──
+  type:         { type: String, enum: ['proforma','invoice','credit_note'], default: 'invoice' },
   // ── Credit note linkage (only set when type === 'credit_note') ──
   creditNoteFor:   { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice' },
   creditNoteForNo: { type: String, default: '' },
   returnReason:    { type: String, default: '' },
   restocked:       { type: Boolean, default: false },
-  converted:    { type: Boolean, default: false },        // true once this booking/proforma has been turned into an invoice
+  converted:    { type: Boolean, default: false },        // true once this proforma has been turned into an invoice
   convertedFromId: { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice' },
   convertedFromNo: { type: String, default: '' },
   convertedToId:   { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice' },
@@ -66,7 +66,7 @@ const invoiceSchema = new mongoose.Schema({
   chequeNo:     { type: String, default: '' }
 }, { timestamps: true });
 
-invoiceSchema.index({ type: 1, date: -1 });          // Invoices/Bookings/Proformas list filter + sort
+invoiceSchema.index({ type: 1, date: -1 });          // Invoices/Proformas list filter + sort
 invoiceSchema.index({ customer: 1 });                 // customer statement / balance lookups
 invoiceSchema.index({ 'items.product': 1, type: 1 }); // commitments-summary aggregation (Inventory page)
 
@@ -85,7 +85,7 @@ invoiceSchema.methods.lineDeliveryStatus = function(item) {
   return 'partial';
 };
 
-// Overall document delivery status, derived from all line items (booking/proforma have no delivery concept)
+// Overall document delivery status, derived from all line items (proforma has no delivery concept)
 invoiceSchema.methods.overallDeliveryStatus = function() {
   if (this.type !== 'invoice') return null;
   if (!this.items || !this.items.length) return 'not_delivered';
