@@ -2,14 +2,14 @@ require('dotenv').config();
 const express  = require('express');
 const mongoose = require('mongoose');
 const cors     = require('cors');
-const compression = require('compression');
+//const compression = require('compression');
 const path     = require('path');
 const fs       = require('fs');
 const { requireAuth, requireRole, requirePermission } = require('./middleware/auth');
 
 const app = express();
 app.use(cors());
-app.use(compression()); // gzip all responses — index.html/app.js and JSON API payloads were being sent uncompressed
+//app.use(compression()); // gzip all responses — index.html/app.js and JSON API payloads were being sent uncompressed
 app.use(express.json({ limit: '10mb' }));
 
 // Strip empty string ObjectId fields from all POST/PUT bodies
