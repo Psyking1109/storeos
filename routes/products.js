@@ -40,7 +40,7 @@ router.get('/commitments-summary', requireAuth, async (req, res) => {
     const Invoice = require('../models/Invoice');
 
     // Proforma = total qty on OPEN (not-yet-converted) proformas only, per product
-    const orderedAgg = await Invoice.aggregate([
+    const proformaAgg = await Invoice.aggregate([
       { $match: { type: 'proforma', converted: { $ne: true } } },
       { $unwind: '$items' },
       { $group: { _id: '$items.product', proforma: { $sum: '$items.qty' } } }
@@ -55,7 +55,7 @@ router.get('/commitments-summary', requireAuth, async (req, res) => {
     ]);
 
     const summary = {};
-    for (const row of orderedAgg) {
+    for (const row of proformaAgg) {
       if (!row._id) continue;
       summary[row._id.toString()] = { proforma: row.proforma, invoicedUndelivered: 0 };
     }
