@@ -3130,129 +3130,185 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
 
           <!-- TAX INVOICE (LK) template — self-contained, replaces items/totals/footer -->
           <template v-if="printTpl==='tax_lk'">
-            <div :style="'border:2px solid '+invoiceLayout.accentColor+';font-size:12px;color:'+invoiceLayout.fontColor">
-              <!-- HEADER: supplier info + invoice title, columns swap based on supplierSide -->
+            <div style="font-size:12px;background:#fff" :style="'color:'+invoiceLayout.fontColor">
+
+              <!-- ── HEADER: logo/company (left) | title + meta (right), swappable ── -->
               <table style="width:100%;border-collapse:collapse">
                 <tr v-if="invoiceLayout.supplierSide==='left'">
-                  <td style="width:55%;padding:12px 14px;vertical-align:top" :style="'border-right:1px solid '+invoiceLayout.accentColor">
-                    <div v-if="invoiceLayout.logoShow&&coSettings.logoData" style="margin-bottom:8px" :style="'text-align:'+invoiceLayout.logoAlign"><img :src="coSettings.logoData" style="max-height:64px;max-width:130px"/></div>
-                    <div style="font-size:15px;font-weight:700">{{coSettings.companyName}}</div>
-                    <div v-if="coSettings.address" style="margin-top:3px;line-height:1.5;white-space:pre-line">{{coSettings.address}}</div>
-                    <div v-if="coSettings.phone">Tel: {{coSettings.phone}}</div>
-                    <div v-if="coSettings.fax">Fax: {{coSettings.fax}}</div>
-                    <div v-if="coSettings.email">E-mail: {{coSettings.email}}</div>
-                    <div v-if="coSettings.tin" style="margin-top:4px">Supplier's TIN: <strong>{{coSettings.tin}}</strong></div>
-                    <div v-if="coSettings.vrn">VAT Reg: <strong>{{coSettings.vrn}}</strong></div>
+                  <td style="width:52%;padding:14px 16px;vertical-align:middle">
+                    <template v-if="invoiceLayout.logoShow&&coSettings.logoData">
+                      <img :src="coSettings.logoData" style="max-height:72px;max-width:160px;display:block" :style="'margin:'+(invoiceLayout.logoAlign==='center'?'0 auto':invoiceLayout.logoAlign==='right'?'0 0 0 auto':'0')"/>
+                    </template>
+                    <template v-else>
+                      <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px" :style="'color:'+invoiceLayout.accentColor">{{coSettings.companyName||''}}</div>
+                    </template>
                   </td>
-                  <td style="padding:12px 14px;vertical-align:top">
-                    <div style="font-size:19px;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px" :style="'color:'+invoiceLayout.accentColor">{{printInv.taxInvoice===false?'INVOICE':'TAX INVOICE'}}</div>
-                    <table style="width:100%;border-collapse:collapse">
-                      <tr><td style="padding:3px 0;width:55%">Date of Invoice:</td><td style="font-weight:600;padding:3px 0">{{fd(printInv.date)}}</td></tr>
-                      <tr><td style="padding:3px 0">Tax Invoice No.:</td><td style="font-weight:600;padding:3px 0;font-family:monospace">{{printInv.invoiceNo}}</td></tr>
+                  <td style="padding:14px 16px;vertical-align:middle;text-align:right">
+                    <div style="font-size:23px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;line-height:1" :style="'color:'+invoiceLayout.accentColor">{{printInv.taxInvoice===false?'INVOICE':'TAX INVOICE'}}</div>
+                    <table style="border-collapse:collapse;margin-left:auto;margin-top:10px;font-size:11px">
+                      <tr><td style="padding:2px 10px 2px 0;color:#666;white-space:nowrap">Date of Invoice:</td><td style="padding:2px 0;font-weight:600;white-space:nowrap">{{fd(printInv.date)}}</td></tr>
+                      <tr><td style="padding:2px 10px 2px 0;color:#666;white-space:nowrap">Tax Invoice No.:</td><td style="padding:2px 0;font-weight:700;font-family:monospace;white-space:nowrap">{{printInv.invoiceNo}}</td></tr>
                     </table>
                   </td>
                 </tr>
                 <tr v-else>
-                  <td style="width:45%;padding:12px 14px;vertical-align:top" :style="'border-right:1px solid '+invoiceLayout.accentColor">
-                    <div style="font-size:19px;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px" :style="'color:'+invoiceLayout.accentColor">{{printInv.taxInvoice===false?'INVOICE':'TAX INVOICE'}}</div>
-                    <table style="width:100%;border-collapse:collapse">
-                      <tr><td style="padding:3px 0;width:55%">Date of Invoice:</td><td style="font-weight:600;padding:3px 0">{{fd(printInv.date)}}</td></tr>
-                      <tr><td style="padding:3px 0">Tax Invoice No.:</td><td style="font-weight:600;padding:3px 0;font-family:monospace">{{printInv.invoiceNo}}</td></tr>
+                  <td style="width:48%;padding:14px 16px;vertical-align:middle">
+                    <div style="font-size:23px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;line-height:1" :style="'color:'+invoiceLayout.accentColor">{{printInv.taxInvoice===false?'INVOICE':'TAX INVOICE'}}</div>
+                    <table style="border-collapse:collapse;margin-top:10px;font-size:11px">
+                      <tr><td style="padding:2px 10px 2px 0;color:#666;white-space:nowrap">Date of Invoice:</td><td style="padding:2px 0;font-weight:600;white-space:nowrap">{{fd(printInv.date)}}</td></tr>
+                      <tr><td style="padding:2px 10px 2px 0;color:#666;white-space:nowrap">Tax Invoice No.:</td><td style="padding:2px 0;font-weight:700;font-family:monospace;white-space:nowrap">{{printInv.invoiceNo}}</td></tr>
                     </table>
                   </td>
-                  <td style="padding:12px 14px;vertical-align:top">
-                    <div v-if="invoiceLayout.logoShow&&coSettings.logoData" style="margin-bottom:8px" :style="'text-align:'+invoiceLayout.logoAlign"><img :src="coSettings.logoData" style="max-height:64px;max-width:130px"/></div>
-                    <div style="font-size:15px;font-weight:700">{{coSettings.companyName}}</div>
-                    <div v-if="coSettings.address" style="margin-top:3px;line-height:1.5;white-space:pre-line">{{coSettings.address}}</div>
-                    <div v-if="coSettings.phone">Tel: {{coSettings.phone}}</div>
-                    <div v-if="coSettings.fax">Fax: {{coSettings.fax}}</div>
-                    <div v-if="coSettings.email">E-mail: {{coSettings.email}}</div>
-                    <div v-if="coSettings.tin" style="margin-top:4px">Supplier's TIN: <strong>{{coSettings.tin}}</strong></div>
-                    <div v-if="coSettings.vrn">VAT Reg: <strong>{{coSettings.vrn}}</strong></div>
+                  <td style="padding:14px 16px;vertical-align:middle;text-align:right">
+                    <template v-if="invoiceLayout.logoShow&&coSettings.logoData">
+                      <img :src="coSettings.logoData" style="max-height:72px;max-width:160px;display:block" :style="'margin:'+(invoiceLayout.logoAlign==='center'?'0 auto':invoiceLayout.logoAlign==='left'?'0':' 0 0 auto')"/>
+                    </template>
+                    <template v-else>
+                      <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px" :style="'color:'+invoiceLayout.accentColor">{{coSettings.companyName||''}}</div>
+                    </template>
                   </td>
                 </tr>
               </table>
-              <!-- BODY SECTIONS in invoiceLayout.sectionOrder order -->
+              <!-- 2.5px accent rule under header -->
+              <div :style="'height:2.5px;background:'+invoiceLayout.accentColor"></div>
+
+              <!-- ── BODY SECTIONS in sectionOrder ── -->
               <template v-for="sec in invoiceLayout.sectionOrder" :key="sec">
-                <!-- parties: Purchaser Details -->
-                <div v-if="sec==='parties'" :style="'border-top:1px solid '+invoiceLayout.accentColor+';padding:10px 14px'">
-                  <div style="font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px" :style="'color:'+invoiceLayout.accentColor">Purchaser Details</div>
-                  <div>Purchaser's TIN: <strong>{{printInv.customerTin||'—'}}</strong></div>
-                  <div style="margin-top:2px">Name: <strong>{{printInv.customerName}}</strong></div>
-                  <div v-if="printInv.customerAddress" style="margin-top:2px">Address: {{printInv.customerAddress}}</div>
-                  <div v-if="printInv.customerPhone" style="margin-top:2px">Tel: {{printInv.customerPhone}}</div>
-                </div>
-                <!-- meta: Delivery / Supply Info -->
-                <div v-if="sec==='meta'" :style="'border-top:1px solid '+invoiceLayout.accentColor+';padding:10px 14px'">
-                  <div style="font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px" :style="'color:'+invoiceLayout.accentColor">Delivery / Supply Info</div>
-                  <div v-if="printInv.dateOfDelivery">Date of Delivery: <strong>{{fd(printInv.dateOfDelivery)}}</strong></div>
-                  <div v-if="printInv.placeOfSupply" style="margin-top:2px">Place of Supply: {{printInv.placeOfSupply}}</div>
-                  <div v-if="printInv.notes" style="margin-top:5px">Additional Information: {{printInv.notes}}</div>
-                </div>
-                <!-- items: Items Table -->
-                <table v-if="sec==='items'" style="width:100%;border-collapse:collapse" :style="'border-top:1px solid '+invoiceLayout.accentColor">
-                  <thead>
-                    <tr :style="'background:'+invoiceLayout.accentColor+'22'">
-                      <th style="padding:6px 8px;text-align:left;border:1px solid #bbb;width:12%">Reference</th>
-                      <th style="padding:6px 8px;text-align:left;border:1px solid #bbb">Description of Goods / Services</th>
-                      <th style="padding:6px 8px;text-align:center;border:1px solid #bbb;width:13%">Quantity</th>
-                      <th style="padding:6px 8px;text-align:right;border:1px solid #bbb;width:14%">Unit Price (Rs.)</th>
-                      <th style="padding:6px 8px;text-align:right;border:1px solid #bbb;width:17%">Amount Excl. VAT (Rs.)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(item,i) in (printInv.items||[])" :key="i">
-                      <td style="padding:6px 8px;border:1px solid #ddd">{{item.sku||''}}</td>
-                      <td style="padding:6px 8px;border:1px solid #ddd">{{item.productName}}</td>
-                      <td style="padding:6px 8px;text-align:center;border:1px solid #ddd">{{item.qty}} {{item.unit}}</td>
-                      <td style="padding:6px 8px;text-align:right;border:1px solid #ddd;font-family:monospace">{{f(item.unitPrice)}}</td>
-                      <td style="padding:6px 8px;text-align:right;border:1px solid #ddd;font-family:monospace">{{f(item.lineSubtotal)}}</td>
-                    </tr>
-                  </tbody>
-                </table>
-                <!-- totals: Totals & Tax -->
-                <table v-if="sec==='totals'" style="width:100%;border-collapse:collapse" :style="'border-top:2px solid '+invoiceLayout.accentColor">
-                  <tr style="border-bottom:1px solid #ddd">
-                    <td style="padding:6px 10px;width:45%"></td>
-                    <td style="padding:6px 10px">Total Value of Supply</td>
-                    <td style="padding:6px 10px;text-align:right;font-family:monospace;font-weight:600;width:18%">{{f(printInv.subtotal)}}</td>
+
+                <!-- parties: two-column Supplier | Purchaser box -->
+                <table v-if="sec==='parties'" style="width:100%;border-collapse:collapse;margin-top:14px;border:1px solid #c2ccca">
+                  <!-- header row: #e8eeec tint, accent labels -->
+                  <tr v-if="invoiceLayout.supplierSide==='left'">
+                    <td style="width:50%;padding:5px 10px;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:1px;background:#e8eeec;border-right:1px solid #c2ccca;border-bottom:1px solid #c2ccca" :style="'color:'+invoiceLayout.accentColor">Supplier Details</td>
+                    <td style="padding:5px 10px;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:1px;background:#e8eeec;border-bottom:1px solid #c2ccca" :style="'color:'+invoiceLayout.accentColor">Purchaser Details</td>
                   </tr>
-                  <template v-if="invoiceLayout.showTaxBreakdown">
-                    <tr v-for="tl in printTaxRows" :key="tl.taxCode" style="border-bottom:1px solid #ddd">
-                      <td></td>
-                      <td style="padding:6px 10px">VAT Amount ({{tl.rate}}%)</td>
-                      <td style="padding:6px 10px;text-align:right;font-family:monospace;font-weight:600">{{f(tl.amount)}}</td>
-                    </tr>
-                  </template>
-                  <tr v-if="printInv.discount" style="border-bottom:1px solid #ddd">
-                    <td></td>
-                    <td style="padding:6px 10px">Discount</td>
-                    <td style="padding:6px 10px;text-align:right;font-family:monospace;color:#c00">({{f(printInv.discount)}})</td>
+                  <tr v-else>
+                    <td style="width:50%;padding:5px 10px;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:1px;background:#e8eeec;border-right:1px solid #c2ccca;border-bottom:1px solid #c2ccca" :style="'color:'+invoiceLayout.accentColor">Purchaser Details</td>
+                    <td style="padding:5px 10px;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:1px;background:#e8eeec;border-bottom:1px solid #c2ccca" :style="'color:'+invoiceLayout.accentColor">Supplier Details</td>
                   </tr>
-                  <tr :style="'background:'+invoiceLayout.accentColor+'15;border-top:2px solid '+invoiceLayout.accentColor+';border-bottom:2px solid '+invoiceLayout.accentColor">
-                    <td></td>
-                    <td style="padding:8px 10px;font-weight:700;font-size:13px">Total Amount including VAT</td>
-                    <td style="padding:8px 10px;text-align:right;font-family:monospace;font-weight:700;font-size:13px" :style="'color:'+invoiceLayout.accentColor">{{f(printInv.total)}}</td>
+                  <!-- data row -->
+                  <tr v-if="invoiceLayout.supplierSide==='left'" style="vertical-align:top">
+                    <td style="padding:9px 11px;border-right:1px solid #c2ccca;line-height:1.65">
+                      <div style="font-weight:700;font-size:13px">{{coSettings.companyName||'—'}}</div>
+                      <div v-if="coSettings.address" style="white-space:pre-line;font-size:11px;margin-top:2px;color:#444">{{coSettings.address}}</div>
+                      <div v-if="coSettings.phone" style="font-size:11px;color:#444">Tel: {{coSettings.phone}}</div>
+                      <div v-if="coSettings.fax" style="font-size:11px;color:#444">Fax: {{coSettings.fax}}</div>
+                      <div v-if="coSettings.email" style="font-size:11px;color:#444">{{coSettings.email}}</div>
+                      <div v-if="coSettings.tin" style="margin-top:4px;font-size:11px">Supplier's TIN: <strong>{{coSettings.tin}}</strong></div>
+                      <div v-if="coSettings.vrn" style="font-size:11px">VAT Reg: <strong>{{coSettings.vrn}}</strong></div>
+                    </td>
+                    <td style="padding:9px 11px;line-height:1.65">
+                      <div style="font-weight:700;font-size:13px">{{printInv.customerName}}</div>
+                      <div v-if="printInv.customerAddress" style="white-space:pre-line;font-size:11px;margin-top:2px;color:#444">{{printInv.customerAddress}}</div>
+                      <div v-if="printInv.customerPhone" style="font-size:11px;color:#444">Tel: {{printInv.customerPhone}}</div>
+                      <div style="margin-top:4px;font-size:11px">Purchaser's TIN: <strong>{{printInv.customerTin||'—'}}</strong></div>
+                      <div v-if="printInv.placeOfSupply" style="font-size:11px">Place of Supply: {{printInv.placeOfSupply}}</div>
+                      <div v-if="printInv.dateOfDelivery" style="font-size:11px">Date of Delivery: {{fd(printInv.dateOfDelivery)}}</div>
+                    </td>
                   </tr>
-                  <tr style="border-bottom:1px solid #ddd">
-                    <td colspan="3" style="padding:8px 10px">
-                      <span>Total Amount in Words:</span>
-                      <div style="font-weight:600;margin-top:2px;font-style:italic">{{amountInWords(printInv.total)}}</div>
+                  <tr v-else style="vertical-align:top">
+                    <td style="padding:9px 11px;border-right:1px solid #c2ccca;line-height:1.65">
+                      <div style="font-weight:700;font-size:13px">{{printInv.customerName}}</div>
+                      <div v-if="printInv.customerAddress" style="white-space:pre-line;font-size:11px;margin-top:2px;color:#444">{{printInv.customerAddress}}</div>
+                      <div v-if="printInv.customerPhone" style="font-size:11px;color:#444">Tel: {{printInv.customerPhone}}</div>
+                      <div style="margin-top:4px;font-size:11px">Purchaser's TIN: <strong>{{printInv.customerTin||'—'}}</strong></div>
+                      <div v-if="printInv.placeOfSupply" style="font-size:11px">Place of Supply: {{printInv.placeOfSupply}}</div>
+                      <div v-if="printInv.dateOfDelivery" style="font-size:11px">Date of Delivery: {{fd(printInv.dateOfDelivery)}}</div>
+                    </td>
+                    <td style="padding:9px 11px;line-height:1.65">
+                      <div style="font-weight:700;font-size:13px">{{coSettings.companyName||'—'}}</div>
+                      <div v-if="coSettings.address" style="white-space:pre-line;font-size:11px;margin-top:2px;color:#444">{{coSettings.address}}</div>
+                      <div v-if="coSettings.phone" style="font-size:11px;color:#444">Tel: {{coSettings.phone}}</div>
+                      <div v-if="coSettings.fax" style="font-size:11px;color:#444">Fax: {{coSettings.fax}}</div>
+                      <div v-if="coSettings.email" style="font-size:11px;color:#444">{{coSettings.email}}</div>
+                      <div v-if="coSettings.tin" style="margin-top:4px;font-size:11px">Supplier's TIN: <strong>{{coSettings.tin}}</strong></div>
+                      <div v-if="coSettings.vrn" style="font-size:11px">VAT Reg: <strong>{{coSettings.vrn}}</strong></div>
                     </td>
                   </tr>
                 </table>
-                <!-- payment: Payment Mode -->
-                <div v-if="sec==='payment'" style="padding:8px 14px;font-size:12px">
-                  <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px" :style="'color:'+invoiceLayout.accentColor">Mode of Payment: </span>
-                  <span style="margin-left:10px">
-                    <span style="margin-right:14px"><span style="display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:3px;text-align:center;line-height:10px;font-size:9px">{{(printInv.paymentMode||'')==='cash'?'✓':''}}</span>Cash</span>
-                    <span style="margin-right:14px"><span style="display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:3px;text-align:center;line-height:10px;font-size:9px">{{(printInv.paymentMode||'')==='credit'?'✓':''}}</span>Credit</span>
-                    <span style="margin-right:14px"><span style="display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:3px;text-align:center;line-height:10px;font-size:9px">{{(printInv.paymentMode||'')==='cheque'?'✓':''}}</span>Cheque</span>
-                    <span><span style="display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:3px;text-align:center;line-height:10px;font-size:9px">{{(printInv.paymentMode||'')==='bank'?'✓':''}}</span>Bank Transfer</span>
+
+                <!-- meta: notes / additional info only -->
+                <div v-if="sec==='meta'&&printInv.notes" style="margin-top:8px;padding:6px 11px;border:1px solid #c2ccca;font-size:11px">
+                  <span style="font-weight:700" :style="'color:'+invoiceLayout.accentColor">Additional Information: </span>{{printInv.notes}}
+                </div>
+
+                <!-- items: solid-teal header, white text, #c2ccca cell borders -->
+                <table v-if="sec==='items'" style="width:100%;border-collapse:collapse;margin-top:14px">
+                  <thead>
+                    <tr :style="'background:'+invoiceLayout.accentColor">
+                      <th style="padding:7px 9px;text-align:left;border:1px solid #c2ccca;font-size:10px;font-weight:700;letter-spacing:.5px;color:#fff;width:12%">Reference</th>
+                      <th style="padding:7px 9px;text-align:left;border:1px solid #c2ccca;font-size:10px;font-weight:700;letter-spacing:.5px;color:#fff">Description of Goods / Services</th>
+                      <th style="padding:7px 9px;text-align:center;border:1px solid #c2ccca;font-size:10px;font-weight:700;letter-spacing:.5px;color:#fff;width:13%">Quantity</th>
+                      <th style="padding:7px 9px;text-align:right;border:1px solid #c2ccca;font-size:10px;font-weight:700;letter-spacing:.5px;color:#fff;width:15%">Unit Price (Rs.)</th>
+                      <th style="padding:7px 9px;text-align:right;border:1px solid #c2ccca;font-size:10px;font-weight:700;letter-spacing:.5px;color:#fff;width:17%">Amount Excl. VAT (Rs.)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(item,idx) in (printInv.items||[])" :key="idx">
+                      <td style="padding:6px 9px;border:1px solid #c2ccca">{{item.sku||''}}</td>
+                      <td style="padding:6px 9px;border:1px solid #c2ccca">{{item.productName}}</td>
+                      <td style="padding:6px 9px;text-align:center;border:1px solid #c2ccca">{{item.qty}} {{item.unit}}</td>
+                      <td style="padding:6px 9px;text-align:right;border:1px solid #c2ccca;font-variant-numeric:tabular-nums">{{f(item.unitPrice)}}</td>
+                      <td style="padding:6px 9px;text-align:right;border:1px solid #c2ccca;font-variant-numeric:tabular-nums">{{f(item.lineSubtotal)}}</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <!-- totals: #e8eeec tint for supply/VAT rows; solid accent Grand Total -->
+                <table v-if="sec==='totals'" style="width:100%;border-collapse:collapse">
+                  <tr style="background:#e8eeec">
+                    <td style="padding:5px 10px;width:46%"></td>
+                    <td style="padding:5px 10px;border:1px solid #c2ccca">Total Value of Supply</td>
+                    <td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;border:1px solid #c2ccca;width:19%">{{f(printInv.subtotal)}}</td>
+                  </tr>
+                  <template v-if="invoiceLayout.showTaxBreakdown">
+                    <tr v-for="tl in printTaxRows" :key="tl.taxCode" style="background:#e8eeec">
+                      <td style="padding:5px 10px"></td>
+                      <td style="padding:5px 10px;border:1px solid #c2ccca">VAT Amount ({{tl.rate}}%)</td>
+                      <td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;border:1px solid #c2ccca">{{f(tl.amount)}}</td>
+                    </tr>
+                  </template>
+                  <tr v-if="printInv.discount" style="background:#e8eeec">
+                    <td></td>
+                    <td style="padding:5px 10px;border:1px solid #c2ccca">Discount</td>
+                    <td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;color:#c00;border:1px solid #c2ccca">({{f(printInv.discount)}})</td>
+                  </tr>
+                  <!-- Grand Total — solid accent fill, white text -->
+                  <tr :style="'background:'+invoiceLayout.accentColor">
+                    <td style="padding:8px 10px"></td>
+                    <td style="padding:8px 10px;font-weight:700;font-size:13px;color:#fff;border:1px solid #c2ccca">Total Amount including VAT</td>
+                    <td style="padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:13px;color:#fff;border:1px solid #c2ccca">{{f(printInv.total)}}</td>
+                  </tr>
+                  <!-- Amount in words -->
+                  <tr>
+                    <td colspan="3" style="padding:9px 10px;font-size:11px;border-top:1px solid #c2ccca">
+                      <span style="color:#555">Total Amount in Words:</span>
+                      <div style="font-weight:600;margin-top:3px;font-style:italic">{{amountInWords(printInv.total)}}</div>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- payment: bordered box with tick marks in accent colour -->
+                <div v-if="sec==='payment'" style="margin-top:10px;border:1px solid #c2ccca;padding:7px 12px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;font-size:11px">
+                  <span style="font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-right:8px" :style="'color:'+invoiceLayout.accentColor">Mode of Payment:</span>
+                  <span style="display:inline-flex;align-items:center;gap:3px;margin-right:16px">
+                    <span style="display:inline-block;width:12px;height:12px;border:1.5px solid #555;text-align:center;line-height:11px;font-size:9px;font-weight:700" :style="(printInv.paymentMode||'')==='cash'?'color:'+invoiceLayout.accentColor:''">{{(printInv.paymentMode||'')==='cash'?'✓':''}}</span> Cash
+                  </span>
+                  <span style="display:inline-flex;align-items:center;gap:3px;margin-right:16px">
+                    <span style="display:inline-block;width:12px;height:12px;border:1.5px solid #555;text-align:center;line-height:11px;font-size:9px;font-weight:700" :style="(printInv.paymentMode||'')==='credit'?'color:'+invoiceLayout.accentColor:''">{{(printInv.paymentMode||'')==='credit'?'✓':''}}</span> Credit
+                  </span>
+                  <span style="display:inline-flex;align-items:center;gap:3px;margin-right:16px">
+                    <span style="display:inline-block;width:12px;height:12px;border:1.5px solid #555;text-align:center;line-height:11px;font-size:9px;font-weight:700" :style="(printInv.paymentMode||'')==='cheque'?'color:'+invoiceLayout.accentColor:''">{{(printInv.paymentMode||'')==='cheque'?'✓':''}}</span> Cheque
+                  </span>
+                  <span style="display:inline-flex;align-items:center;gap:3px">
+                    <span style="display:inline-block;width:12px;height:12px;border:1.5px solid #555;text-align:center;line-height:11px;font-size:9px;font-weight:700" :style="(printInv.paymentMode||'')==='bank'?'color:'+invoiceLayout.accentColor:''">{{(printInv.paymentMode||'')==='bank'?'✓':''}}</span> Bank Transfer
                   </span>
                 </div>
+
               </template>
-              <div v-if="coSettings.footer" :style="'border-top:1px solid '+invoiceLayout.accentColor+'55;padding:6px 14px;text-align:center;color:#777;font-size:11px'">{{coSettings.footer}}</div>
+
+              <!-- Footer strip: 2.5px accent top rule, small caps -->
+              <div v-if="coSettings.footer" style="margin-top:14px;padding:7px 12px;text-align:center;font-size:10px;color:#555;text-transform:uppercase;letter-spacing:1px" :style="'border-top:2.5px solid '+invoiceLayout.accentColor">{{coSettings.footer}}</div>
             </div>
           </template>
 
