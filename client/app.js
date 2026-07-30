@@ -822,6 +822,7 @@ watch(pg,async p=>{
   if(p==='invt'){loadInvTypes();loadIrdSettings();}
   if(p==='loc'){loadLocs();loadProds();}
   if(p==='usr')loadUsers();
+  if(p==='recon'){loadBaccs();if(reconAccount.value)loadReconLines();}
 });
 watch(ledV,()=>loadLed());
 function openProd(p){eProd.value=p?{...p,defaultTaxCodes:[...(p.defaultTaxCodes||[])],locationStock:JSON.parse(JSON.stringify(p.locationStock||[])),allowLoose:p.allowLoose||false,looseUnit:p.looseUnit||'',looseConversion:p.looseConversion||1,looseSellingPrice:p.looseSellingPrice||0}:{name:'',sku:'',category:'',unit:'pcs',costPrice:0,sellingPrice:0,stock:0,minStock:0,description:'',defaultTaxCodes:[],locationStock:[],allowLoose:false,looseUnit:'',looseConversion:1,looseSellingPrice:0};mErr.value='';mProd.value=true;}
@@ -1385,6 +1386,108 @@ async function saveReturn(){
   saving.value=false;
 }
 
+// ── RECONCILIATION ────────────────────────────────────────────────────────
+const reconAccount=ref('');
+const reconLines=ref([]);
+const reconTab=ref('unreconciled');
+const reconSuggestions=ref([]);
+const reconBatchSuggestion=ref(null);
+const reconSuggLoading=ref(false);
+const reconLoading=ref(false);
+const reconImporting=ref(false);
+const reconSummary=ref({bookBalance:0,statementBalance:null,difference:null,statusCounts:{}});
+const csvText=ref('');
+const csvPreview=ref([]);
+const csvMap=ref({dateCol:1,descCol:3,debitCol:6,creditCol:7,balanceCol:8});
+const mReconImport=ref(false);
+const mReconMatch=ref(false);
+const mReconSplit=ref(false);
+const mReconBankOnly=ref(false);
+const reconActiveLine=ref(null);
+const splitParts=ref([{kind:'invoice',refId:'',label:'',amount:0},{kind:'reimbursement',label:'Transport',amount:0,extraType:'reimbursement',extraLabel:'Transport'}]);
+const splitInvSearch=ref('');
+const splitInvResults=ref([]);
+const bankOnlyKind=ref('expense');
+const bankOnlyLabel=ref('Bank Charges');
+const reconDifference=computed(()=>reconSummary.value.difference!=null?reconSummary.value.difference:0);
+const splitTotal=computed(()=>splitParts.value.reduce((s,p)=>s+n(p.amount),0));
+const splitBalanced=computed(()=>Math.abs(splitTotal.value-Math.abs((reconActiveLine.value?.amount)||0))<=0.02);
+
+async function loadReconSummary(){if(!reconAccount.value)return;try{reconSummary.value=await api('GET','/reconciliation/summary?account='+reconAccount.value);}catch(e){}}
+async function loadReconLines(){
+  if(!reconAccount.value)return;
+  reconLoading.value=true;
+  try{reconLines.value=await api('GET','/reconciliation/lines?account='+reconAccount.value+'&status='+reconTab.value);await loadReconSummary();}catch(e){alert(e.message);}
+  reconLoading.value=false;
+}
+async function importCsv(previewOnly){
+  if(!reconAccount.value){alert('Select a bank account first');return;}
+  if(!csvText.value.trim()){alert('Paste the CSV text first');return;}
+  reconImporting.value=true;
+  try{
+    const r=await api('POST','/reconciliation/import',{bankAccountId:reconAccount.value,csvText:csvText.value,previewOnly:!!previewOnly});
+    if(previewOnly){csvPreview.value=r.preview||[];}
+    else{alert('Imported: '+r.imported+' rows. Duplicates skipped: '+r.skipped);csvText.value='';csvPreview.value=[];mReconImport.value=false;loadReconLines();}
+  }catch(e){alert(e.message);}
+  reconImporting.value=false;
+}
+async function openMatch(line){
+  reconActiveLine.value=line;reconSuggestions.value=[];reconBatchSuggestion.value=null;
+  reconSuggLoading.value=true;mReconMatch.value=true;
+  try{const r=await api('GET','/reconciliation/'+line._id+'/suggestions');reconSuggestions.value=r.suggestions||[];reconBatchSuggestion.value=r.batchSuggestion||null;}catch(e){alert(e.message);}
+  reconSuggLoading.value=false;
+}
+async function confirmMatch(matches,note){
+  if(!reconActiveLine.value)return;
+  saving.value=true;mErr.value='';
+  try{
+    await api('POST','/reconciliation/'+reconActiveLine.value._id+'/reconcile',{matches,note:note||''});
+    mReconMatch.value=false;mReconSplit.value=false;mReconBankOnly.value=false;
+    reconActiveLine.value=null;loadReconLines();
+  }catch(e){mErr.value=e.message;}
+  saving.value=false;
+}
+function acceptSuggestion(sugg){
+  confirmMatch([{kind:sugg.kind,refId:sugg.refId,label:sugg.label,amount:sugg.amount}],'');
+}
+function acceptBatch(batch){
+  const matches=batch.invoices.map(inv=>({kind:'invoice',refId:inv._id,label:inv.invoiceNo,amount:inv.paid}));
+  confirmMatch(matches,'');
+}
+function splitLine(line){
+  reconActiveLine.value=line;
+  splitParts.value=[{kind:'invoice',refId:'',label:'',amount:0},{kind:'reimbursement',label:'Transport',amount:0,extraType:'reimbursement',extraLabel:'Transport'}];
+  splitInvSearch.value='';splitInvResults.value=[];mErr.value='';mReconSplit.value=true;
+}
+async function srchSplitInv(){
+  if(splitInvSearch.value.length<1)return;
+  try{splitInvResults.value=await api('GET','/reconciliation/search-invoices?q='+encodeURIComponent(splitInvSearch.value));}catch(e){}
+}
+function pickSplitInv(inv){splitParts.value[0]={kind:'invoice',refId:inv._id,label:inv.invoiceNo,amount:inv.paid};splitInvSearch.value=inv.invoiceNo+' — '+inv.customerName;splitInvResults.value=[];}
+async function saveSplit(){
+  if(!splitBalanced.value){mErr.value='Parts must total '+f(Math.abs(reconActiveLine.value?.amount||0));return;}
+  const matches=splitParts.value.map(p=>({kind:p.extraType||p.kind,refId:p.refId||undefined,label:p.label||p.extraLabel||'',amount:n(p.amount)}));
+  await confirmMatch(matches,'');
+}
+function bookBankOnly(line){
+  reconActiveLine.value=line;
+  bankOnlyKind.value=line.direction==='debit'?'expense':'income';
+  bankOnlyLabel.value=line.direction==='debit'?'Bank Charges':'Interest Income';
+  mErr.value='';mReconBankOnly.value=true;
+}
+async function saveBookBankOnly(){
+  if(!reconActiveLine.value)return;
+  await confirmMatch([{kind:bankOnlyKind.value,label:bankOnlyLabel.value,amount:Math.abs(reconActiveLine.value.amount)}],'');
+}
+async function ignoreLine(line){
+  if(!confirm('Ignore this line?'))return;
+  try{await api('POST','/reconciliation/'+line._id+'/ignore',{note:'Ignored'});loadReconLines();}catch(e){alert(e.message);}
+}
+async function undoReconcile(line){
+  if(!confirm('Undo reconciliation? Ledger entries created by this match will be reversed.'))return;
+  try{await api('POST','/reconciliation/'+line._id+'/undo',{});loadReconLines();}catch(e){alert(e.message);}
+}
+
 onMounted(()=>{if(tok.value){loadDash();loadTxRates();loadCas();loadInvTypes();loadLocs();loadSavedCats();loadCats();loadCoSettings();}});
 return{tok,me,lf,lerr,lding,spwd,pw,pwErr,pwOk,can,login,logout,changePw,
 pg,saving,mErr,dash,prods,invs,pos,custs,supps,cats,txRates,allTxRates,taxRpt,users,invTypes,locs,
@@ -1413,7 +1516,9 @@ irdSettings,irdSettingsErr,savingIrd,loadIrdSettings,previewIrdNumber,saveIrdSet
   amountInWords,lineStockWarning,
   invoiceLayout,saveInvoiceLayout,layoutDragStart,layoutDragOver,layoutDrop,layoutMoveUp,layoutMoveDown,SECTION_LABELS,
   mPrintInv,printInv,printTpl,printColor,printShowTax,printShowNotes,printTaxRows,showLivePreview,invPreviewStyle,printInvoice,doPrint,
-  ledgerAccs,mLedgerAcc,eLedgerAcc,mJournalEntry,eJournalEntry,openJournalEntry,saveJournalEntry,mQuickJournal,eQuickJournal,qjAccountGroups,openQuickJournal,onQJTypeChange,onQJDebitChange,onQJCreditChange,saveQuickJournal,mLedgerAccDetail,ledgerAccDetail,mEditLedgerEntry,eEditLedgerEntry,editLedgerEntry,saveLedgerEntry,delLedgerEntry,ledgerAccsByType,loadLedgerAccs,openLedgerAcc,saveLedgerAcc,delLedgerAcc,viewLedgerAcc,trialBalance,loadTrialBalance,expAccFilter,onLedgerAccChange};
+  ledgerAccs,mLedgerAcc,eLedgerAcc,mJournalEntry,eJournalEntry,openJournalEntry,saveJournalEntry,mQuickJournal,eQuickJournal,qjAccountGroups,openQuickJournal,onQJTypeChange,onQJDebitChange,onQJCreditChange,saveQuickJournal,mLedgerAccDetail,ledgerAccDetail,mEditLedgerEntry,eEditLedgerEntry,editLedgerEntry,saveLedgerEntry,delLedgerEntry,ledgerAccsByType,loadLedgerAccs,openLedgerAcc,saveLedgerAcc,delLedgerAcc,viewLedgerAcc,trialBalance,loadTrialBalance,expAccFilter,onLedgerAccChange,
+  reconAccount,reconLines,reconTab,reconSuggestions,reconBatchSuggestion,reconSuggLoading,reconLoading,reconImporting,reconSummary,reconDifference,csvText,csvPreview,csvMap,mReconImport,mReconMatch,mReconSplit,mReconBankOnly,reconActiveLine,splitParts,splitInvSearch,splitInvResults,bankOnlyKind,bankOnlyLabel,splitTotal,splitBalanced,
+  loadReconLines,loadReconSummary,importCsv,openMatch,confirmMatch,acceptSuggestion,acceptBatch,splitLine,srchSplitInv,pickSplitInv,saveSplit,bookBankOnly,saveBookBankOnly,ignoreLine,undoReconcile};
 }}).mount('#app');
 });
 

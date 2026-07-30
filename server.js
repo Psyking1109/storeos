@@ -87,7 +87,8 @@ app.use('/api/suppliers',       requireAuth, requirePermission('suppliers'),    
 app.use('/api/banking',         requireAuth, requirePermission('banking'),        require('./routes/banking'));
 app.use('/api/cheques',         requireAuth, requirePermission('cheques'),        require('./routes/cheques'));
 app.use('/api/ledger',          requireAuth, requirePermission('ledger'),         require('./routes/ledger'));
-app.use('/api/ledger-accounts', requireAuth, requirePermission('chartOfAccounts'), require('./routes/ledgeraccounts'));
+app.use('/api/ledger-accounts',   requireAuth, requirePermission('chartOfAccounts'), require('./routes/ledgeraccounts'));
+app.use('/api/reconciliation',    requireAuth, requirePermission('banking'),        require('./routes/reconciliation'));
 
 // SPA fallback — serve index.html for all non-API routes
 app.get('*', (req, res) => {

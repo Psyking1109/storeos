@@ -211,6 +211,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
     <div class="ni" :class="{active:pg==='exp'}"  @click="pg='exp'"><span class="ic">💸</span>Expenses</div>
     <template v-if="can('manager')">
     <div class="ni" :class="{active:pg==='bank'}" @click="pg='bank'"><span class="ic">🏦</span>Banking</div>
+    <div class="ni" :class="{active:pg==='recon'}" @click="pg='recon'"><span class="ic">✅</span>Reconciliation</div>
     <div class="ni" :class="{active:pg==='chq'}"  @click="pg='chq'"><span class="ic">🧾</span>Cheques<span v-if="pendChq>0" class="nbadge">{{pendChq}}</span></div>
     <div class="ni" :class="{active:pg==='led'}"  @click="pg='led'"><span class="ic">📒</span>Ledger</div>
     <div class="ni" :class="{active:pg==='laccs'}" @click="pg='laccs';loadLedgerAccs()"><span class="ic">📋</span>Chart of Accounts</div>
@@ -3817,6 +3818,342 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
     <div class="mf">
       <button class="btn btn-o" @click="mEditCashEntry=false">Cancel</button>
       <button class="btn btn-p" @click="saveCashEntry" :disabled="saving">{{saving?'Saving...':'Save Changes'}}</button>
+    </div>
+  </div>
+</div>
+
+<!-- RECONCILIATION PAGE -->
+<template v-if="pg==='recon'">
+  <div class="topbar">
+    <h2>Reconciliation</h2>
+    <div class="tba">
+      <select v-model="reconAccount" @change="loadReconLines();loadReconSummary()" class="fc" style="width:200px">
+        <option value="">Select account…</option>
+        <option v-for="a in baccs" :key="a._id" :value="a._id">{{a.name}}</option>
+      </select>
+      <button class="btn btn-p" @click="mReconImport=true" :disabled="!reconAccount">Import CSV</button>
+    </div>
+  </div>
+  <div class="content">
+    <!-- Summary bar -->
+    <div class="sg" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px" v-if="reconAccount">
+      <div class="sc g">
+        <div class="sl">Book Balance</div>
+        <div class="sv" :class="reconSummary.bookBalance>=0?'cg':'cr'">{{f(reconSummary.bookBalance||0)}}</div>
+        <div class="ss">From bank account</div>
+      </div>
+      <div class="sc b">
+        <div class="sl">Statement Balance</div>
+        <div class="sv cb2" v-if="reconSummary.statementBalance!=null">{{f(reconSummary.statementBalance)}}</div>
+        <div class="sv cm" v-else>No import yet</div>
+        <div class="ss">Last imported line</div>
+      </div>
+      <div class="sc" :class="Math.abs(reconDifference)<0.01?'g':'r'">
+        <div class="sl">Difference</div>
+        <div class="sv" :class="Math.abs(reconDifference)<0.01?'cg':'cr'">{{reconSummary.statementBalance!=null?f(reconDifference):'—'}}</div>
+        <div class="ss" :class="Math.abs(reconDifference)<0.01?'cg':''">{{Math.abs(reconDifference)<0.01?'Balanced!':'Confirm more matches'}}</div>
+      </div>
+    </div>
+
+    <div v-if="!reconAccount" class="card" style="text-align:center;padding:48px">
+      <div style="font-size:32px;margin-bottom:8px">✅</div>
+      <div style="color:var(--tx2)">Select a bank account to start reconciling</div>
+    </div>
+
+    <template v-if="reconAccount">
+      <!-- Tabs + status counts -->
+      <div style="display:flex;gap:6px;margin-bottom:12px;align-items:center">
+        <button class="btn btn-o btn-sm" :class="reconTab==='unreconciled'?'btn-p':''" @click="reconTab='unreconciled';loadReconLines()">
+          Unreconciled <span v-if="reconSummary.statusCounts?.unreconciled" class="nbadge" style="position:static;margin-left:4px">{{reconSummary.statusCounts.unreconciled}}</span>
+        </button>
+        <button class="btn btn-o btn-sm" :class="reconTab==='reconciled'?'btn-p':''" @click="reconTab='reconciled';loadReconLines()">Reconciled</button>
+        <button class="btn btn-o btn-sm" :class="reconTab==='ignored'?'btn-p':''" @click="reconTab='ignored';loadReconLines()">Ignored</button>
+        <button class="btn btn-o btn-sm" @click="loadReconLines()" style="margin-left:auto">↻ Refresh</button>
+      </div>
+
+      <div class="card">
+        <div class="tw">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:90px">Date</th>
+                <th>Description</th>
+                <th style="width:120px;text-align:right">Amount</th>
+                <th v-if="reconTab==='unreconciled'" style="width:200px">Best Match</th>
+                <th v-if="reconTab==='reconciled'" style="width:200px">Matched To</th>
+                <th style="width:160px">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="reconLoading"><td colspan="5" class="emp">Loading…</td></tr>
+              <tr v-else-if="!reconLines.length"><td colspan="5" class="emp"><div class="eic">✅</div><div>No {{reconTab}} lines</div></td></tr>
+              <tr v-for="line in reconLines" :key="line._id">
+                <td class="mn cm">{{fd(line.date)}}</td>
+                <td>
+                  <div style="font-weight:500;color:var(--txt);font-size:13px">{{line.note||line.description}}</div>
+                  <div class="cm" style="font-size:10px" v-if="line.counterparty">{{line.counterparty}}</div>
+                  <div class="cm" style="font-size:10px" v-if="line.reference">Ref: {{line.reference}}</div>
+                </td>
+                <td class="mn fw" style="text-align:right" :class="line.direction==='credit'?'cg':'cr'">
+                  {{line.direction==='credit'?'+':'-'}}{{f(Math.abs(line.amount))}}
+                </td>
+                <!-- Unreconciled: show best suggestion inline -->
+                <td v-if="reconTab==='unreconciled'">
+                  <span v-if="line._bestSugg" class="badge" :class="line._bestSugg.band==='High'?'bpaid':line._bestSugg.band==='Medium'?'bpend':'bout'" style="font-size:10px">{{line._bestSugg.band}}</span>
+                  <span v-if="line._bestSugg" style="font-size:11px;color:var(--txt);margin-left:4px">{{line._bestSugg.label}}</span>
+                  <span v-if="!line._bestSugg" class="cm" style="font-size:11px">—</span>
+                </td>
+                <!-- Reconciled: show what it was matched to -->
+                <td v-if="reconTab==='reconciled'">
+                  <div v-for="m in (line.matches||[])" :key="m.label" style="font-size:11px;color:var(--txt)">
+                    <span class="badge bpaid" style="font-size:9px;margin-right:3px">{{m.kind}}</span>{{m.label}} {{f(m.amount)}}
+                  </div>
+                </td>
+                <!-- Actions -->
+                <td>
+                  <div class="fx g6" v-if="reconTab==='unreconciled'">
+                    <button class="btn btn-o btn-sm" @click="openMatch(line)" title="View suggestions & match">Match</button>
+                    <button class="btn btn-o btn-sm" @click="splitLine(line)" title="Split into invoice + extra">Split</button>
+                    <button class="btn btn-o btn-sm" @click="bookBankOnly(line)" title="Book as bank fee or interest">Fee</button>
+                    <button class="btn btn-sm" style="background:none;border:1px solid var(--brd);color:var(--tx3)" @click="ignoreLine(line)" title="Ignore this line">Ignore</button>
+                  </div>
+                  <div class="fx g6" v-else>
+                    <button class="btn btn-o btn-sm" @click="undoReconcile(line)">Undo</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </template>
+  </div>
+</template>
+
+<!-- RECON: IMPORT CSV MODAL -->
+<div class="mo" v-if="mReconImport" @click.self="mReconImport=false">
+  <div class="md" style="max-width:640px">
+    <div class="mh">
+      <div>
+        <h3>Import Bank Statement CSV</h3>
+        <div style="font-size:11px;color:var(--tx2)">Commercial Bank of Ceylon format (12 cols, Debit/Credit separated, DD/MM/YYYY)</div>
+      </div>
+      <button class="xbtn" @click="mReconImport=false">×</button>
+    </div>
+    <div class="mb">
+      <div class="fg">
+        <div class="fl">
+          <label>Bank Account</label>
+          <select v-model="reconAccount" class="fc">
+            <option value="">Select…</option>
+            <option v-for="a in baccs" :key="a._id" :value="a._id">{{a.name}}</option>
+          </select>
+        </div>
+        <div class="fl">
+          <label>Paste CSV (or copy from Excel)</label>
+          <textarea v-model="csvText" class="fc" rows="8" placeholder="Paste the full CSV content here…" style="font-family:var(--fm);font-size:11px;white-space:pre"></textarea>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-o" @click="importCsv(true)" :disabled="reconImporting">Preview first 5 rows</button>
+        </div>
+        <!-- Preview -->
+        <div v-if="csvPreview.length" style="margin-top:8px">
+          <div style="font-size:11px;color:var(--tx2);margin-bottom:6px;font-weight:600">Preview (first {{csvPreview.length}} rows)</div>
+          <div class="card" style="padding:0;overflow:auto">
+            <table style="font-size:11px">
+              <thead><tr><th>Date</th><th>Note</th><th>Counterparty</th><th>Amount</th><th>Dir.</th></tr></thead>
+              <tbody>
+                <tr v-for="(row,i) in csvPreview" :key="i">
+                  <td class="mn">{{row.date}}</td>
+                  <td>{{row.note}}</td>
+                  <td class="cm">{{row.counterparty||'—'}}</td>
+                  <td class="mn fw" :class="row.direction==='credit'?'cg':'cr'">{{row.direction==='credit'?'+':'-'}}{{f(Math.abs(row.amount))}}</td>
+                  <td><span class="badge" :class="row.direction==='credit'?'bin':'bout'">{{row.direction}}</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="al al-i" style="margin-top:6px;font-size:11px">Columns look correct? Click Import to save all rows.</div>
+        </div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" @click="mReconImport=false">Cancel</button>
+      <button class="btn btn-p" @click="importCsv(false)" :disabled="reconImporting||!csvText.trim()||!reconAccount">
+        {{reconImporting?'Importing…':'Import'}}
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- RECON: MATCH SUGGESTIONS MODAL -->
+<div class="mo" v-if="mReconMatch" @click.self="mReconMatch=false">
+  <div class="md" style="max-width:560px">
+    <div class="mh">
+      <div>
+        <h3>Match Statement Line</h3>
+        <div v-if="reconActiveLine" style="font-size:11px;color:var(--tx2)">
+          {{fd(reconActiveLine.date)}} &nbsp;·&nbsp; <span :class="reconActiveLine.direction==='credit'?'cg':'cr'">{{reconActiveLine.direction==='credit'?'+':'-'}}{{f(Math.abs(reconActiveLine.amount))}}</span> &nbsp;·&nbsp; {{reconActiveLine.note||reconActiveLine.description}}
+        </div>
+      </div>
+      <button class="xbtn" @click="mReconMatch=false">×</button>
+    </div>
+    <div class="mb">
+      <div v-if="mErr" class="al al-d">{{mErr}}</div>
+      <div v-if="reconSuggLoading" style="text-align:center;padding:24px;color:var(--tx2)">Finding matches…</div>
+      <template v-else>
+        <div v-if="!reconSuggestions.length && !reconBatchSuggestion" class="al al-i">No close matches found. Try Split or Fee/Interest instead.</div>
+
+        <!-- Single-record suggestions -->
+        <div v-if="reconSuggestions.length">
+          <div style="font-size:11px;color:var(--tx2);font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Suggested Matches</div>
+          <div v-for="s in reconSuggestions" :key="String(s.refId)" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--brd);border-radius:8px;margin-bottom:6px;background:var(--bg2)">
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+                <span class="badge" :class="s.band==='High'?'bpaid':s.band==='Medium'?'bpend':'bout'" style="font-size:9px">{{s.band}}</span>
+                <span style="font-weight:600;color:var(--txt);font-size:13px">{{s.label}}</span>
+                <span class="cm" style="font-size:10px">{{s.kind}}</span>
+              </div>
+              <div class="cm" style="font-size:11px">{{fd(s.date)}} &nbsp;·&nbsp; {{f(s.amount)}} &nbsp;·&nbsp; {{s.customerName||s.party||s.vendor||''}}</div>
+            </div>
+            <button class="btn btn-p btn-sm" @click="acceptSuggestion(s)" :disabled="saving">Match</button>
+          </div>
+        </div>
+
+        <!-- Batched deposit suggestion -->
+        <div v-if="reconBatchSuggestion" style="margin-top:12px">
+          <div style="font-size:11px;color:var(--tx2);font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Batched Deposit</div>
+          <div style="padding:10px 12px;border:1px solid var(--brd);border-radius:8px;background:var(--bg2)">
+            <div style="font-size:12px;color:var(--txt);margin-bottom:6px">Looks like a combined payment:</div>
+            <div v-for="inv in reconBatchSuggestion.invoices" :key="inv._id" style="font-size:12px;padding:2px 0">
+              <span style="font-weight:600">{{inv.invoiceNo}}</span> — {{inv.customerName}} — {{f(inv.paid)}}
+            </div>
+            <div style="margin-top:6px;font-size:12px;color:var(--tx2)">Total: {{f(reconBatchSuggestion.total)}}</div>
+            <div style="margin-top:8px">
+              <button class="btn btn-p btn-sm" @click="acceptBatch(reconBatchSuggestion)" :disabled="saving">Confirm batch match</button>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" @click="mReconMatch=false">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- RECON: SPLIT LINE MODAL -->
+<div class="mo" v-if="mReconSplit" @click.self="mReconSplit=false">
+  <div class="md" style="max-width:520px">
+    <div class="mh">
+      <div>
+        <h3>Split Statement Line</h3>
+        <div v-if="reconActiveLine" style="font-size:11px;color:var(--tx2)">
+          {{fd(reconActiveLine.date)}} &nbsp;·&nbsp; <span :class="reconActiveLine.direction==='credit'?'cg':'cr'">{{reconActiveLine.direction==='credit'?'+':'-'}}{{f(Math.abs(reconActiveLine.amount))}}</span>
+        </div>
+      </div>
+      <button class="xbtn" @click="mReconSplit=false">×</button>
+    </div>
+    <div class="mb">
+      <div v-if="mErr" class="al al-d">{{mErr}}</div>
+
+      <!-- Part 1: Invoice -->
+      <div style="border:1px solid var(--brd);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--bg2)">
+        <div style="font-size:11px;font-weight:600;color:var(--tx2);margin-bottom:8px">PART 1 — Invoice payment</div>
+        <div class="fr">
+          <div class="fl" style="flex:2">
+            <label>Invoice No / Customer</label>
+            <input v-model="splitInvSearch" class="fc" placeholder="Type invoice no or customer…" @input="srchSplitInv"/>
+            <div v-if="splitInvResults.length" style="background:var(--bg2);border:1px solid var(--brd);border-radius:6px;margin-top:2px;max-height:140px;overflow:auto">
+              <div v-for="inv in splitInvResults" :key="inv._id" @click="pickSplitInv(inv)" style="padding:7px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--brd)" class="row-hover">
+                <span style="font-weight:600">{{inv.invoiceNo}}</span> — {{inv.customerName}} — <span class="cg">{{f(inv.paid)}}</span>
+              </div>
+            </div>
+          </div>
+          <div class="fl" style="flex:1">
+            <label>Amount</label>
+            <input v-model="splitParts[0].amount" type="number" step="0.01" class="fc" @blur="splitParts[0].amount=n(splitParts[0].amount)"/>
+          </div>
+        </div>
+      </div>
+
+      <!-- Part 2: Extra -->
+      <div style="border:1px solid var(--brd);border-radius:8px;padding:12px;background:var(--bg2)">
+        <div style="font-size:11px;font-weight:600;color:var(--tx2);margin-bottom:8px">PART 2 — Extra charge</div>
+        <div class="fr">
+          <div class="fl" style="flex:2">
+            <label>Type</label>
+            <select v-model="splitParts[1].extraType" class="fc">
+              <option value="reimbursement">Reimbursement (Transport / Cost passed on)</option>
+              <option value="income">Income (User's own charge)</option>
+            </select>
+          </div>
+          <div class="fl" style="flex:1">
+            <label>Label</label>
+            <select v-model="splitParts[1].label" class="fc">
+              <option>Transport</option>
+              <option>Labour</option>
+              <option>Delivery</option>
+              <option>Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="fl" style="margin-top:6px">
+          <label>Amount</label>
+          <input v-model="splitParts[1].amount" type="number" step="0.01" class="fc" @blur="splitParts[1].amount=n(splitParts[1].amount)"/>
+        </div>
+      </div>
+
+      <!-- Running total -->
+      <div style="margin-top:12px;padding:10px;border-radius:8px;text-align:center;font-size:14px;font-weight:600"
+           :style="splitBalanced?'background:rgba(0,200,100,.12);color:var(--cg)':'background:rgba(200,60,60,.1);color:var(--cr)'">
+        Parts total: {{f(splitTotal)}} / {{f(Math.abs(reconActiveLine?.amount||0))}}
+        {{splitBalanced?' ✓':' — amounts must balance'}}
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" @click="mReconSplit=false">Cancel</button>
+      <button class="btn btn-p" @click="saveSplit" :disabled="saving||!splitBalanced">{{saving?'Saving…':'Confirm Split'}}</button>
+    </div>
+  </div>
+</div>
+
+<!-- RECON: BANK FEE / INTEREST MODAL -->
+<div class="mo" v-if="mReconBankOnly" @click.self="mReconBankOnly=false">
+  <div class="md" style="max-width:400px">
+    <div class="mh">
+      <div>
+        <h3>Book &amp; Reconcile</h3>
+        <div v-if="reconActiveLine" style="font-size:11px;color:var(--tx2)">
+          {{fd(reconActiveLine.date)}} &nbsp;·&nbsp; <span :class="reconActiveLine.direction==='credit'?'cg':'cr'">{{reconActiveLine.direction==='credit'?'+':'-'}}{{f(Math.abs(reconActiveLine.amount))}}</span>
+        </div>
+      </div>
+      <button class="xbtn" @click="mReconBankOnly=false">×</button>
+    </div>
+    <div class="mb">
+      <div v-if="mErr" class="al al-d">{{mErr}}</div>
+      <div class="al al-i" style="margin-bottom:10px;font-size:12px">This line has no matching record in StoreOS. Book it directly and reconcile in one step.</div>
+      <div class="fg">
+        <div class="fl">
+          <label>Category</label>
+          <select v-model="bankOnlyKind" class="fc">
+            <option value="expense">Bank charge / fee (money out)</option>
+            <option value="income">Interest income (money in)</option>
+          </select>
+        </div>
+        <div class="fl">
+          <label>Label / Account Name</label>
+          <input v-model="bankOnlyLabel" class="fc" placeholder="e.g. Bank Charges, Interest Income…"/>
+        </div>
+        <div class="fl">
+          <label>Amount</label>
+          <input :value="f(Math.abs(reconActiveLine?.amount||0))" class="fc" disabled/>
+        </div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" @click="mReconBankOnly=false">Cancel</button>
+      <button class="btn btn-p" @click="saveBookBankOnly" :disabled="saving||!bankOnlyLabel">{{saving?'Saving…':'Book &amp; Reconcile'}}</button>
     </div>
   </div>
 </div>
