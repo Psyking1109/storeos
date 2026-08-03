@@ -210,8 +210,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
     <div class="ni" :class="{active:pg==='cash'}" @click="pg='cash'"><span class="ic">💵</span>Cash Accounts</div>
     <div class="ni" :class="{active:pg==='exp'}"  @click="pg='exp'"><span class="ic">💸</span>Expenses</div>
     <template v-if="can('manager')">
-    <div class="ni" :class="{active:pg==='bank'}" @click="pg='bank'"><span class="ic">🏦</span>Banking</div>
-    <div class="ni" :class="{active:pg==='recon'}" @click="pg='recon'"><span class="ic">✅</span>Reconciliation</div>
+    <div class="ni" :class="{active:pg==='bank'||pg==='recon'}" @click="pg='bank'"><span class="ic">🏦</span>Banking</div>
     <div class="ni" :class="{active:pg==='chq'}"  @click="pg='chq'"><span class="ic">🧾</span>Cheques<span v-if="pendChq>0" class="nbadge">{{pendChq}}</span></div>
     <div class="ni" :class="{active:pg==='led'}"  @click="pg='led'"><span class="ic">📒</span>Ledger</div>
     <div class="ni" :class="{active:pg==='laccs'}" @click="pg='laccs';loadLedgerAccs()"><span class="ic">📋</span>Chart of Accounts</div>
@@ -257,12 +256,12 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
       <div class="card"><div class="ch"><h3>Recent Invoices</h3></div>
-        <div class="tw"><table><thead><tr><th>Invoice</th><th>Customer</th><th>Total</th><th>Status</th></tr></thead>
+        <div class="tw"><table><thead><tr><th>Invoice</th><th>Customer</th><th style="text-align:right">Total</th><th>Status</th></tr></thead>
           <tbody>
             <tr v-for="i in (dash.recentInvoices||[])" :key="i._id"><td>
             <span class="mn fw" :class="i.isReturn?'cr':'ca'" style="cursor:pointer;text-decoration:underline;text-underline-offset:3px" @click="openInvDetail(i)">{{i.invoiceNo}}</span>
             <span v-if="i.isReturn" style="font-size:9px;background:rgba(224,82,82,.15);color:var(--red);padding:1px 5px;border-radius:3px;margin-left:4px;font-family:var(--fm)">RETURN</span>
-          </td><td>{{i.customerName}}</td><td class="mn">{{f(i.total)}}</td><td><span class="badge" :class="bs(i.status)">{{i.status}}</span></td></tr>
+          </td><td>{{i.customerName}}</td><td class="mn" style="text-align:right">{{f(i.total)}}</td><td><span class="badge" :class="bs(i.status)">{{i.status}}</span></td></tr>
             <tr v-if="!dash.recentInvoices?.length"><td colspan="4" class="emp">No invoices yet</td></tr>
           </tbody>
         </table></div>
@@ -322,7 +321,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <div style="font-size:11px;color:var(--tx3)">{{cat.items.length}} items · Total value: {{f(cat.items.reduce((s,p)=>s+p.stock*p.costPrice,0))}}</div>
         </div>
         <div class="card" style="margin-bottom:8px"><div class="tw"><table>
-          <thead><tr><th>Name / SKU</th><th>Unit</th><th>Loose</th><th>Cost</th><th>Price</th><th>Taxes</th><th>Stock</th><th>Physically Available</th><th>Proforma</th><th>Invoiced–Undelivered</th><th>Value</th><th></th></tr></thead>
+          <thead><tr><th>Name / SKU</th><th>Unit</th><th>Loose</th><th style="text-align:right">Cost</th><th style="text-align:right">Price</th><th>Taxes</th><th>Stock</th><th style="text-align:right">Available</th><th style="text-align:right">Proforma</th><th style="text-align:right">Invoiced–Undelivered</th><th style="text-align:right">Value</th><th></th></tr></thead>
           <tbody>
             <tr v-for="p in cat.items" :key="p._id">
               <td><div style="font-weight:600;color:var(--txt)">{{p.name}}</div><div class="mn cm" style="font-size:10px">{{p.sku||'—'}}</div></td>
@@ -331,16 +330,16 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
                 <span v-if="p.allowLoose" style="color:var(--grn)">✓ {{p.looseConversion}}{{p.looseUnit}}</span>
                 <span v-else class="cm">—</span>
               </td>
-              <td class="mn">{{f(p.costPrice)}}</td><td class="mn ca">{{f(p.sellingPrice)}}</td>
+              <td class="mn" style="text-align:right">{{f(p.costPrice)}}</td><td class="mn ca" style="text-align:right">{{f(p.sellingPrice)}}</td>
               <td><span v-for="tc in (p.defaultTaxCodes||[])" :key="tc" class="txbadge" style="cursor:default">{{tc}}</span><span v-if="!p.defaultTaxCodes?.length" class="cm">—</span></td>
               <td>
               <span class="badge" :class="p.stock<=p.minStock?'blow':'bok'">{{p.stock}} {{p.unit}}</span>
               <span v-if="p.allowLoose&&p.looseStock>0" style="font-size:10px;color:var(--tx2);display:block;margin-top:2px">+{{p.looseStock}} {{p.looseUnit}} loose</span>
             </td>
-              <td class="mn" :style="{color:availForSale(p)<=0?'var(--red)':'var(--grn)'}">{{availForSale(p)}}</td>
-              <td class="mn" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px" @click="openCommitDrill(p,'proforma')">{{proformaQty(p)}}</td>
-              <td class="mn" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px;color:var(--org)" @click="openCommitDrill(p,'invoiced')">{{undeliveredQty(p)}}</td>
-              <td class="mn">{{f(p.stock*p.costPrice)}}</td>
+              <td class="mn" style="text-align:right" :style="{color:availForSale(p)<=0?'var(--red)':'var(--grn)'}">{{availForSale(p)}}</td>
+              <td class="mn" style="text-align:right;cursor:pointer;text-decoration:underline;text-underline-offset:2px" @click="openCommitDrill(p,'proforma')">{{proformaQty(p)}}</td>
+              <td class="mn" style="text-align:right;cursor:pointer;text-decoration:underline;text-underline-offset:2px;color:var(--org)" @click="openCommitDrill(p,'invoiced')">{{undeliveredQty(p)}}</td>
+              <td class="mn" style="text-align:right">{{f(p.stock*p.costPrice)}}</td>
               <td><div class="fx g6"><button class="btn btn-o btn-sm" @click="openProd(p)">Edit</button><button class="btn btn-o btn-sm" @click="openStk(p)">Stock</button><button class="btn btn-b btn-sm" @click="viewStockMovement(p._id)">📊</button><button class="btn btn-d btn-sm" @click="delProd(p._id)">Del</button></div></td>
             </tr>
           </tbody>
@@ -351,21 +350,21 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
     <!-- Flat view when searching or filtering -->
     <template v-else>
       <div class="card"><div class="tw"><table>
-        <thead><tr><th>Name / SKU</th><th>Category</th><th>Unit</th><th>Cost</th><th>Price</th><th>Stock</th><th>Physically Available</th><th>Proforma</th><th>Invoiced–Undelivered</th><th>Value</th><th></th></tr></thead>
+        <thead><tr><th>Name / SKU</th><th>Category</th><th>Unit</th><th style="text-align:right">Cost</th><th style="text-align:right">Price</th><th>Stock</th><th style="text-align:right">Available</th><th style="text-align:right">Proforma</th><th style="text-align:right">Invoiced–Undelivered</th><th style="text-align:right">Value</th><th></th></tr></thead>
         <tbody>
           <tr v-for="p in prods" :key="p._id">
             <td><div style="font-weight:600;color:var(--txt)">{{p.name}}</div><div class="mn cm" style="font-size:10px">{{p.sku||'—'}}</div></td>
             <td style="font-size:12px;color:var(--tx2)">{{p.category}}</td>
             <td class="mn">{{p.unit}}</td>
-            <td class="mn">{{f(p.costPrice)}}</td><td class="mn ca">{{f(p.sellingPrice)}}</td>
+            <td class="mn" style="text-align:right">{{f(p.costPrice)}}</td><td class="mn ca" style="text-align:right">{{f(p.sellingPrice)}}</td>
             <td>
               <span class="badge" :class="p.stock<=p.minStock?'blow':'bok'">{{p.stock}} {{p.unit}}</span>
               <span v-if="p.allowLoose&&p.looseStock>0" style="font-size:10px;color:var(--tx2);display:block;margin-top:2px">+{{p.looseStock}} {{p.looseUnit}} loose</span>
             </td>
-            <td class="mn" :style="{color:availForSale(p)<=0?'var(--red)':'var(--grn)'}">{{availForSale(p)}}</td>
-            <td class="mn" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px" @click="openCommitDrill(p,'proforma')">{{proformaQty(p)}}</td>
-            <td class="mn" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px;color:var(--org)" @click="openCommitDrill(p,'invoiced')">{{undeliveredQty(p)}}</td>
-            <td class="mn">{{f(p.stock*p.costPrice)}}</td>
+            <td class="mn" style="text-align:right" :style="{color:availForSale(p)<=0?'var(--red)':'var(--grn)'}">{{availForSale(p)}}</td>
+            <td class="mn" style="text-align:right;cursor:pointer;text-decoration:underline;text-underline-offset:2px" @click="openCommitDrill(p,'proforma')">{{proformaQty(p)}}</td>
+            <td class="mn" style="text-align:right;cursor:pointer;text-decoration:underline;text-underline-offset:2px;color:var(--org)" @click="openCommitDrill(p,'invoiced')">{{undeliveredQty(p)}}</td>
+            <td class="mn" style="text-align:right">{{f(p.stock*p.costPrice)}}</td>
             <td><div class="fx g6"><button class="btn btn-o btn-sm" @click="openProd(p)">Edit</button><button class="btn btn-o btn-sm" @click="openStk(p)">Stock</button><button class="btn btn-b btn-sm" @click="viewStockMovement(p._id)">📊</button><button class="btn btn-d btn-sm" @click="delProd(p._id)">Del</button></div></td>
           </tr>
           <tr v-if="!prods.length"><td colspan="11" class="emp"><div class="eic">📦</div><div>No products found</div></td></tr>
@@ -460,7 +459,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
   </div>
   <div class="content">
     <div class="card"><div class="tw"><table>
-      <thead><tr><th>No.</th><th>Type</th><th>Customer</th><th>Date</th><th>Subtotal</th><th>VAT</th><th>Tax</th><th>Total</th><th>Paid</th><th>Balance</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>No.</th><th>Type</th><th>Customer</th><th>Date</th><th style="text-align:right">Subtotal</th><th style="text-align:right">VAT</th><th style="text-align:right">Tax</th><th style="text-align:right">Total</th><th style="text-align:right">Paid</th><th style="text-align:right">Balance</th><th>Status</th><th></th></tr></thead>
       <tbody>
         <tr v-for="i in invs" :key="i._id">
           <td>
@@ -473,8 +472,8 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           </td>
           <td class="mn cm" style="font-size:11px">{{i.invoiceTypeName||'—'}}</td>
           <td>{{i.customerName}}</td><td class="mn cm">{{fd(i.date)}}</td>
-          <td class="mn">{{f(i.subtotal)}}</td><td class="mn co">{{f(i.vatAmount||0)}}</td><td class="mn">{{f(i.taxAmount||0)}}</td>
-          <td class="mn fw">{{f(i.total)}}</td><td class="mn cg">{{f(i.paid)}}</td><td class="mn cr">{{f(i.balance)}}</td>
+          <td class="mn" style="text-align:right">{{f(i.subtotal)}}</td><td class="mn co" style="text-align:right">{{f(i.vatAmount||0)}}</td><td class="mn" style="text-align:right">{{f(i.taxAmount||0)}}</td>
+          <td class="mn fw" style="text-align:right">{{f(i.total)}}</td><td class="mn cg" style="text-align:right">{{f(i.paid)}}</td><td class="mn cr" style="text-align:right">{{f(i.balance)}}</td>
           <td><span class="badge" :class="bs(i.status)">{{i.status}}</span></td>
           <td><div class="fx g6">
             <button v-if="i.type==='proforma'&&!i.converted" class="btn btn-g btn-sm" @click="convertToInvoice(i)" :disabled="converting">{{converting?'…':'→ Invoice'}}</button>
@@ -529,12 +528,12 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
   <div class="topbar"><h2>Customers</h2><div class="tba"><button class="btn btn-p" @click="openCust()">+ New</button></div></div>
   <div class="content">
     <div class="card"><div class="tw"><table>
-      <thead><tr><th>Name</th><th>Phone</th><th>TIN</th><th>Balance</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Phone</th><th>TIN</th><th style="text-align:right">Balance</th><th></th></tr></thead>
       <tbody>
         <tr v-for="c in custs" :key="c._id">
           <td style="font-weight:600;color:var(--txt)">{{c.name}}</td><td class="mn">{{c.phone||'—'}}</td>
           <td class="mn cm" style="font-size:11px">{{c.tin||'—'}}</td>
-          <td class="mn" :class="c.balance>0?'cr':'cg'">{{f(c.balance)}}</td>
+          <td class="mn" style="text-align:right" :class="c.balance>0?'cr':'cg'">{{f(c.balance)}}</td>
           <td><button class="btn btn-o btn-sm" @click="openCust(c)">Edit</button></td>
         </tr>
         <tr v-if="!custs.length"><td colspan="5" class="emp"><div class="eic">👥</div><div>No customers</div></td></tr>
@@ -548,11 +547,11 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
   <div class="topbar"><h2>Suppliers</h2><div class="tba"><button class="btn btn-p" @click="openSupp()">+ New</button></div></div>
   <div class="content">
     <div class="card"><div class="tw"><table>
-      <thead><tr><th>Name</th><th>Phone</th><th>Balance Owed</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Phone</th><th style="text-align:right">Balance Owed</th><th></th></tr></thead>
       <tbody>
         <tr v-for="s in supps" :key="s._id">
           <td style="font-weight:600;color:var(--txt)">{{s.name}}</td><td class="mn">{{s.phone||'—'}}</td>
-          <td class="mn" :class="s.balance>0?'cr':'cg'">{{f(s.balance)}}</td>
+          <td class="mn" style="text-align:right" :class="s.balance>0?'cr':'cg'">{{f(s.balance)}}</td>
           <td><div class="fx g6"><button class="btn btn-o btn-sm" @click="openSupp(s)">Edit</button><button class="btn btn-b btn-sm" @click="viewSuppHist(s)">History</button></div></td>
         </tr>
         <tr v-if="!supps.length"><td colspan="4" class="emp"><div class="eic">🏭</div><div>No suppliers</div></td></tr>
@@ -646,13 +645,13 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
     <!-- Transfers -->
     <div class="card"><div class="ch"><h3>Recent Transfers</h3></div>
       <div class="tw"><table>
-        <thead><tr><th>Date</th><th>From</th><th>To</th><th>Amount</th><th>Description</th><th>Ledgered</th></tr></thead>
+        <thead><tr><th>Date</th><th>From</th><th>To</th><th style="text-align:right">Amount</th><th>Description</th><th>Ledgered</th></tr></thead>
         <tbody>
           <tr v-for="t in xfers" :key="t._id">
             <td class="mn cm">{{fd(t.date)}}</td>
             <td><span class="badge" :class="t.fromType==='cash'?'bin':'bpart'">{{t.fromType}}</span> {{t.fromAccountName}}</td>
             <td><span class="badge" :class="t.toType==='cash'?'bin':'bpart'">{{t.toType}}</span> {{t.toAccountName}}</td>
-            <td class="mn fw">{{f(t.amount)}}</td><td>{{t.description}}</td>
+            <td class="mn fw" style="text-align:right">{{f(t.amount)}}</td><td>{{t.description}}</td>
             <td><span class="badge" :class="t.ledgered?'bpaid':'bdrft'">{{t.ledgered?'Yes':'No'}}</span></td>
           </tr>
           <tr v-if="!xfers.length"><td colspan="6" class="emp">No transfers yet</td></tr>
@@ -713,7 +712,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <div style="font-weight:700;color:var(--txt);font-size:14px;margin-bottom:4px">{{a.name}}</div>
           <div class="sv" :class="a.currentBalance>=0?'cg':'cr'">{{f(a.currentBalance)}}</div>
           <div class="ss">{{a.bank}}{{a.accountNumber?' · '+a.accountNumber:''}}</div>
-          <div style="margin-top:8px;display:flex;gap:6px"><button class="btn btn-o btn-sm" @click="viewStmt(a)">Statement</button><button class="btn btn-o btn-sm" @click="openBAcc(a)">Edit</button></div>
+          <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-o btn-sm" @click="viewStmt(a)">Statement</button><button class="btn btn-o btn-sm" @click="openBAcc(a)">Edit</button><button class="btn btn-b btn-sm" @click="openReconForAccount(a)">✅ Reconcile</button></div>
         </div>
         <div v-if="!baccs.length" class="sc b" style="cursor:pointer" @click="openBAcc()"><div style="font-size:28px;margin-bottom:8px">🏦</div><div style="color:var(--tx2)">Add first bank account</div></div>
       </div>
@@ -726,14 +725,14 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
         <input v-model="btf.to" type="date" class="fc" @change="loadBTxs" style="width:135px"/>
       </div>
       <div class="card"><div class="tw"><table>
-        <thead><tr><th>Date</th><th>Type</th><th>Account</th><th>Description</th><th>Ref</th><th>Amount</th><th>Cleared</th><th></th></tr></thead>
+        <thead><tr><th>Date</th><th>Type</th><th>Account</th><th>Description</th><th>Ref</th><th style="text-align:right">Amount</th><th>Cleared</th><th></th></tr></thead>
         <tbody>
           <tr v-for="t in btxs" :key="t._id">
             <td class="mn cm">{{fd(t.date)}}</td>
             <td><span class="badge" :class="t.type==='deposit'?'bin':t.type==='withdrawal'?'bout':'bpend'">{{t.type}}</span></td>
             <td><div style="color:var(--txt);font-weight:500">{{t.account?.name||t.accountName}}</div><div v-if="t.type==='transfer'" class="cm" style="font-size:10px">→ {{t.toAccount?.name||t.toAccountName}}</div></td>
             <td>{{t.description}}</td><td class="mn cm" style="font-size:10px">{{t.chequeNo||t.reference||'—'}}</td>
-            <td class="mn fw" :class="t.type==='deposit'?'cg':'cr'">{{t.type==='deposit'?'+':'-'}}{{f(t.amount)}}</td>
+            <td class="mn fw" style="text-align:right" :class="t.type==='deposit'?'cg':'cr'">{{t.type==='deposit'?'+':'-'}}{{f(t.amount)}}</td>
             <td><span class="badge" :class="t.cleared?'bpaid':'bpend'">{{t.cleared?'Cleared':'Pending'}}</span></td>
             <td><button class="btn btn-d btn-sm" @click="delBTx(t._id)">×</button></td>
           </tr>
@@ -761,7 +760,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       <div class="sc p"><div class="sl">Bounced</div><div class="sv sm cp">{{f(chqs.filter(c=>c.status==='bounced').reduce((s,c)=>s+c.amount,0))}}</div></div>
     </div>
     <div class="card"><div class="tw"><table>
-      <thead><tr><th>Cheque#</th><th>Dir.</th><th>Party</th><th>Bank</th><th>Date</th><th>Due Date</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Cheque#</th><th>Dir.</th><th>Party</th><th>Bank</th><th>Date</th><th>Due Date</th><th style="text-align:right">Amount</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>
         <tr v-for="c in chqs" :key="c._id">
           <td class="mn ca fw">{{c.chequeNo}}</td>
@@ -769,7 +768,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <td style="color:var(--txt);font-weight:500">{{c.party}}</td><td class="cm">{{c.bank||'—'}}</td>
           <td class="mn cm">{{fd(c.date)}}</td>
           <td class="mn" :class="chqDue(c)?'cr':'cm'">{{fd(c.dueDate)}}{{chqDue(c)?' ⚠️':''}}</td>
-          <td class="mn fw">{{f(c.amount)}}</td>
+          <td class="mn fw" style="text-align:right">{{f(c.amount)}}</td>
           <td><span class="badge" :class="chqSC(c.status)">{{c.status}}</span></td>
           <td>
             <div class="fx g6">
@@ -1187,12 +1186,12 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
   <div class="content">
     <div class="al al-i" style="margin-bottom:16px">Create your own tax rates. Set the code, rate, type and whether it is <strong>creditable</strong> (offsets output tax, e.g. VAT) or <strong>non-creditable</strong> (straight cost, e.g. levies). Once created, taxes appear in dropdowns when adding items to invoices and purchases.</div>
     <div class="card"><div class="tw"><table>
-      <thead><tr><th>Code</th><th>Name</th><th>Rate %</th><th>Type</th><th>Creditable</th><th>Applies To</th><th>Description</th><th>Status</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Code</th><th>Name</th><th style="text-align:right">Rate %</th><th>Type</th><th>Creditable</th><th>Applies To</th><th>Description</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>
         <tr v-for="t in allTxRates" :key="t._id">
           <td class="mn ca fw">{{t.code}}</td>
           <td style="color:var(--txt);font-weight:500">{{t.name}}</td>
-          <td class="mn fw">{{t.rate}}%</td>
+          <td class="mn fw" style="text-align:right">{{t.rate}}%</td>
           <td><span class="badge" :class="t.type==='output'?'bout':t.type==='input'?'bin':'bpend'">{{t.type}}</span></td>
           <td><span class="badge" :class="t.creditable?'bpaid':'bout'" style="font-size:9px">{{t.creditable?'Yes':'No'}}</span></td>
           <td class="mn cm" style="font-size:11px">{{t.appliesTo}}</td>
@@ -1399,12 +1398,12 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
     <div v-if="locs.length&&prods.length" class="card">
       <div class="ch"><h3>Stock by Location</h3></div>
       <div class="tw"><table>
-        <thead><tr><th>Product</th><th>Total</th><th v-for="l in locs" :key="l._id">{{l.name}}</th></tr></thead>
+        <thead><tr><th>Product</th><th style="text-align:right">Total</th><th v-for="l in locs" :key="l._id" style="text-align:right">{{l.name}}</th></tr></thead>
         <tbody>
           <tr v-for="p in prods.filter(p=>p.locationStock&&p.locationStock.length)" :key="p._id">
             <td style="color:var(--txt);font-weight:500">{{p.name}}</td>
-            <td class="mn"><span class="badge" :class="p.stock<=p.minStock?'blow':'bok'">{{p.stock}}</span></td>
-            <td v-for="l in locs" :key="l._id" class="mn">{{(p.locationStock.find(ls=>ls.location?.toString()===l._id.toString())?.stock)||0}}</td>
+            <td class="mn" style="text-align:right"><span class="badge" :class="p.stock<=p.minStock?'blow':'bok'">{{p.stock}}</span></td>
+            <td v-for="l in locs" :key="l._id" class="mn" style="text-align:right">{{(p.locationStock.find(ls=>ls.location?.toString()===l._id.toString())?.stock)||0}}</td>
           </tr>
           <tr v-if="!prods.filter(p=>p.locationStock&&p.locationStock.length).length"><td :colspan="2+locs.length" class="emp" style="padding:14px">No products with location stock. Edit a product to assign stock per location.</td></tr>
         </tbody>
@@ -1419,6 +1418,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
   <div class="topbar"><h2>🏢 Company Settings</h2></div>
   <div class="content"><div class="card" style="max-width:620px"><div class="cb">
     <div v-if="mErr" class="al al-d" style="margin-bottom:10px">{{mErr}}</div>
+    <div v-if="coSettingsOk" class="al al-s" style="margin-bottom:10px">{{coSettingsOk}}</div>
     <div class="fg">
       <div class="fr"><div class="fl"><label>Company Name *</label><input v-model="coSettings.companyName" class="fc" placeholder="Your Company Ltd"/></div><div class="fl"><label>TIN / Tax ID</label><input v-model="coSettings.tin" class="fc" placeholder="123456789"/></div></div>
       <div class="fr"><div class="fl"><label>VAT Reg No.</label><input v-model="coSettings.vrn" class="fc" placeholder="VAT-XXXXXXXXX"/></div><div class="fl"><label>Phone</label><input v-model="coSettings.phone" class="fc" placeholder="+94 11 234 5678"/></div></div>
@@ -1432,7 +1432,9 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <button type="button" class="btn btn-d btn-sm" @click="coSettings.logoData=''">Remove</button>
         </div>
       </div>
-      <button class="btn btn-p" @click="saveCoSettings">💾 Save</button>
+    </div>
+    <div style="margin-top:16px;display:flex;justify-content:flex-end">
+      <button class="btn btn-p" @click="saveCoSettings" :disabled="saving">{{saving?'Saving…':'💾 Save Settings'}}</button>
     </div>
   </div></div></div>
 </template>
@@ -3825,7 +3827,8 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
 <!-- RECONCILIATION PAGE -->
 <template v-if="pg==='recon'">
   <div class="topbar">
-    <h2>Reconciliation</h2>
+    <button class="btn btn-o btn-sm" @click="pg='bank'" style="margin-right:6px">← Banking</button>
+    <h2>Bank Reconciliation<span v-if="reconAccount" class="mn cm" style="font-size:12px;font-weight:400;margin-left:8px">— {{baccs.find(a=>a._id===reconAccount)?.name||''}}</span></h2>
     <div class="tba">
       <select v-model="reconAccount" @change="loadReconLines();loadReconSummary()" class="fc" style="width:200px">
         <option value="">Select account…</option>

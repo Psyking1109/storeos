@@ -83,6 +83,7 @@ function toggleTheme(){
 
 // ── COMPANY SETTINGS ────────────────────────────────────────────────────────
 const mCoSettings=ref(false);
+const coSettingsOk=ref('');
 const coSettings=ref({companyName:'',tin:'',vrn:'',phone:'',fax:'',email:'',address:'',website:'',footer:'Thank you for your business!',logoData:''});
 async function loadCoSettings(){
   try{
@@ -95,11 +96,14 @@ async function loadCoSettings(){
   }catch(e){}
 }
 async function saveCoSettings(){
+  mErr.value='';coSettingsOk.value='';saving.value=true;
   try{
     const{companyName,tin,vrn,phone,fax,email,address,website,footer,logoData}=coSettings.value;
     await api('PUT','/settings',{companyName,tin,vrn,phone,fax,email,address,website,footer,logoData});
+    coSettingsOk.value='Settings saved successfully!';
     mCoSettings.value=false;
   }catch(e){mErr.value=e.message;}
+  saving.value=false;
 }
 function onLogoUpload(e){
   const file=e.target.files[0];if(!file)return;
@@ -823,6 +827,7 @@ watch(pg,async p=>{
   if(p==='loc'){loadLocs();loadProds();}
   if(p==='usr')loadUsers();
   if(p==='recon'){loadBaccs();if(reconAccount.value)loadReconLines();}
+  if(p==='cosettings'){mErr.value='';coSettingsOk.value='';loadCoSettings();}
 });
 watch(ledV,()=>loadLed());
 function openProd(p){eProd.value=p?{...p,defaultTaxCodes:[...(p.defaultTaxCodes||[])],locationStock:JSON.parse(JSON.stringify(p.locationStock||[])),allowLoose:p.allowLoose||false,looseUnit:p.looseUnit||'',looseConversion:p.looseConversion||1,looseSellingPrice:p.looseSellingPrice||0}:{name:'',sku:'',category:'',unit:'pcs',costPrice:0,sellingPrice:0,stock:0,minStock:0,description:'',defaultTaxCodes:[],locationStock:[],allowLoose:false,looseUnit:'',looseConversion:1,looseSellingPrice:0};mErr.value='';mProd.value=true;}
@@ -1488,6 +1493,13 @@ async function undoReconcile(line){
   try{await api('POST','/reconciliation/'+line._id+'/undo',{});loadReconLines();}catch(e){alert(e.message);}
 }
 
+function openReconForAccount(acc){
+  reconAccount.value=acc._id;
+  pg.value='recon';
+  loadReconLines();
+  loadReconSummary();
+}
+
 onMounted(()=>{if(tok.value){loadDash();loadTxRates();loadCas();loadInvTypes();loadLocs();loadSavedCats();loadCats();loadCoSettings();}});
 return{tok,me,lf,lerr,lding,spwd,pw,pwErr,pwOk,can,login,logout,changePw,
 pg,saving,mErr,dash,prods,invs,pos,custs,supps,cats,txRates,allTxRates,taxRpt,users,invTypes,locs,
@@ -1512,7 +1524,7 @@ openLoc,saveLoc,openUser,saveUser,disableUser,viewCashLedger,loadCashLedger,cash
 loadLed,loadAccLed,loadTaxRpt,loadTaxMonthly,loadRpt,expandedRptRows,toggleRptRow,loadInvs,loadExps,mCat,eCat,savedCats,pCatFilter,saveCat,delCat,prodsByCategory,mQuickProd,openQuickProd,saveQuickProd,toggleLooseMode,
 commitSummary,loadCommitSummary,proformaQty,undeliveredQty,availForSale,mCommitDrill,commitDrillTitle,commitDrillRows,commitDrillKind,openCommitDrill,openCommitDrillDoc,
 irdSettings,irdSettingsErr,savingIrd,loadIrdSettings,previewIrdNumber,saveIrdSettings,
-  isDark,toggleTheme,mCoSettings,coSettings,saveCoSettings,loadCoSettings,onLogoUpload,
+  isDark,toggleTheme,mCoSettings,coSettings,coSettingsOk,saveCoSettings,loadCoSettings,onLogoUpload,openReconForAccount,
   amountInWords,lineStockWarning,
   invoiceLayout,saveInvoiceLayout,layoutDragStart,layoutDragOver,layoutDrop,layoutMoveUp,layoutMoveDown,SECTION_LABELS,
   mPrintInv,printInv,printTpl,printColor,printShowTax,printShowNotes,printTaxRows,showLivePreview,invPreviewStyle,printInvoice,doPrint,
