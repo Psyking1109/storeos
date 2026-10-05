@@ -709,7 +709,7 @@ const ROLE_DEFAULTS={
 };
 function applyRoleDefaults(){eUser.value.permissions={...(ROLE_DEFAULTS[eUser.value.role]||ROLE_DEFAULTS.cashier)};}
 const eBAcc=ref({});const eBTx=ref({});const eChq=ref({});const chqStsData=ref({});
-const payDoc=ref(null);const payAmt=ref(0);const payMode=ref('cash');const payCashAcc=ref('');const payBankAcc=ref('');const payChqNo=ref('');const payDate=ref(today);
+const payDoc=ref(null);const payAmt=ref(0);const payMode=ref('cash');const payCashAcc=ref('');const payBankAcc=ref('');const payChqNo=ref('');const payDate=ref(today);const payChqDate=ref('');const payChqBank=ref('');const payChqDrawer=ref('');
 const iSrch=ref('');const iSrchRes=ref([]);const iSrchLoading=ref(false);const poSrch=ref('');const poSrchRes=ref([]);
 const invNoPreview=ref('');
 function fInv(){return{type:'invoice',customer:'',customerName:'Walk-in Customer',customerTin:'',customerAddress:'',customerPhone:'',placeOfSupply:'',dateOfDelivery:'',date:today,dueDate:'',taxInclusive:false,taxInvoice:false,invoiceType:'',invoiceTypeName:'',invTypeTaxConfig:[],toggledTaxes:{},items:[],subtotal:0,taxAmount:0,taxBreakdown:[],discount:0,total:0,paid:0,balance:0,paymentMode:'cash',cashAccount:'',bankAccount:'',chequeNo:'',notes:''};} 
@@ -727,7 +727,7 @@ const fd=d=>d?new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short
 const fdL=d=>new Date(d).toLocaleDateString('en-GB',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
 const bp=(v,arr)=>{if(!arr?.length)return 0;const mx=Math.max(...arr.map(d=>d.total));return mx?(v/mx*100):0;};
 const bs=s=>({pending:'bpend',partial:'bpart',paid:'bpaid',overdue:'bover',draft:'bdrft',received:'brcvd'}[s]||'bdrft');
-const chqSC=s=>({pending:'bpend',deposited:'bpart',cleared:'bpaid',bounced:'bover',cancelled:'bdrft'}[s]||'bdrft');
+const chqSC=s=>({pending:'bpend',deposited:'bpart',cleared:'bpaid',bounced:'bover',cancelled:'bdrft',endorsed:'bpart'}[s]||'bdrft');
 const chqDue=c=>['pending','deposited'].includes(c.status)&&new Date(c.dueDate)<=new Date(Date.now()+3*86400000);
 async function loadDash(){try{dash.value=await api('GET','/dashboard');}catch(e){}}
 async function loadProds(){try{prods.value=await api('GET','/products?search='+psrch.value);loadCommitSummary();}catch(e){}}
@@ -777,7 +777,7 @@ async function saveIrdSettings(){
 async function loadLocs(){try{locs.value=await api('GET','/locations');}catch(e){}}
 async function loadBaccs(){try{baccs.value=await api('GET','/banking/accounts');}catch(e){}}
 async function loadBTxs(){try{const q=new URLSearchParams(Object.fromEntries(Object.entries(btf.value).filter(([,v])=>v)));btxs.value=await api('GET','/banking/transactions?'+q);}catch(e){}}
-async function loadChqs(){try{const q=new URLSearchParams(Object.fromEntries(Object.entries(chqf.value).filter(([,v])=>v)));chqs.value=await api('GET','/cheques?'+q);}catch(e){}}
+async function loadChqs(){try{const q=new URLSearchParams();if(chqf.value.dir)q.set('direction',chqf.value.dir);if(chqf.value.sts)q.set('status',chqf.value.sts);chqs.value=await api('GET','/cheques?'+q);}catch(e){}}
 async function loadUsers(){try{users.value=await api('GET','/auth/users');}catch(e){}}
 async function loadLed(){
   try{const q='from='+ledFr.value+'&to='+ledTo.value;
@@ -1082,17 +1082,24 @@ async function saveExp(){
   saving.value=false;
 }
 async function delExp(id){if(!confirm('Delete expense?'))return;try{await api('DELETE','/expenses/'+id);loadExps();loadCas();loadBaccs();}catch(e){alert(e.message);}}
-function openPay(doc,type){payDoc.value=doc;payAmt.value=doc.balance;payMode.value='cash';payCashAcc.value='';payBankAcc.value='';payChqNo.value='';payDate.value=today;loadCas();loadBaccs();mPay.value=true;}
-async function savePay(){saving.value=true;try{const ep=payDoc.value.invoiceNo?'/invoices/'+payDoc.value._id+'/payment':'/purchases/'+payDoc.value._id+'/payment';await api('PATCH',ep,{amount:payAmt.value,paymentMode:payMode.value,cashAccount:payCashAcc.value||undefined,bankAccount:payBankAcc.value||undefined,chequeNo:payChqNo.value||undefined,date:payDate.value});mPay.value=false;if(payDoc.value.invoiceNo)loadInvs();else loadPOs();}catch(e){alert(e.message);}saving.value=false;}
+function openPay(doc,type){payDoc.value=doc;payAmt.value=doc.balance;payMode.value='cash';payCashAcc.value='';payBankAcc.value='';payChqNo.value='';payDate.value=today;payChqDate.value='';payChqBank.value='';payChqDrawer.value='';loadCas();loadBaccs();mPay.value=true;}
+async function savePay(){saving.value=true;try{const ep=payDoc.value.invoiceNo?'/invoices/'+payDoc.value._id+'/payment':'/purchases/'+payDoc.value._id+'/payment';await api('PATCH',ep,{amount:payAmt.value,paymentMode:payMode.value,cashAccount:payCashAcc.value||undefined,bankAccount:payBankAcc.value||undefined,chequeNo:payChqNo.value||undefined,chequeDate:payChqDate.value||undefined,chequeBank:payChqBank.value||undefined,chequeDrawer:payChqDrawer.value||undefined,date:payDate.value});mPay.value=false;if(payDoc.value.invoiceNo)loadInvs();else loadPOs();}catch(e){alert(e.message);}saving.value=false;}
 function openBAcc(a){eBAcc.value=a?{...a}:{name:'',bank:'',branch:'',accountNumber:'',type:'current',openingBalance:0};mErr.value='';mBAcc.value=true;}
 async function saveBAcc(){if(!eBAcc.value.name){mErr.value='Name required';return;}saving.value=true;mErr.value='';try{if(eBAcc.value._id)await api('PUT','/banking/accounts/'+eBAcc.value._id,eBAcc.value);else await api('POST','/banking/accounts',eBAcc.value);mBAcc.value=false;loadBaccs();}catch(e){mErr.value=e.message;}saving.value=false;}
 function openBTx(){eBTx.value={type:'deposit',account:'',toAccount:'',amount:0,date:today,description:'',chequeNo:'',reference:'',cleared:true};mErr.value='';mBTx.value=true;}
 async function saveBTx(){if(!eBTx.value.account||!eBTx.value.amount){mErr.value='Account and amount required';return;}saving.value=true;mErr.value='';try{await api('POST','/banking/transactions',eBTx.value);mBTx.value=false;loadBaccs();loadBTxs();}catch(e){mErr.value=e.message;}saving.value=false;}
 async function delBTx(id){if(!confirm('Delete? Balance will be reversed.'))return;try{await api('DELETE','/banking/transactions/'+id);loadBaccs();loadBTxs();}catch(e){alert(e.message);}}
 async function viewStmt(a){stmtAcc.value=a;stmtRows.value=[];mStmt.value=true;await loadStmt();}
-function openChq(c){eChq.value=c?{...c,date:c.date?new Date(c.date).toISOString().slice(0,10):today,dueDate:c.dueDate?new Date(c.dueDate).toISOString().slice(0,10):''}:{chequeNo:'',direction:'received',amount:0,party:'',bank:'',branch:'',date:today,dueDate:'',account:'',reference:'',status:'pending'};mErr.value='';mChq.value=true;}
+function openChq(c){eChq.value=c?{...c,date:c.date?new Date(c.date).toISOString().slice(0,10):today,dueDate:c.dueDate?new Date(c.dueDate).toISOString().slice(0,10):''}:{chequeNo:'',direction:'received',amount:0,party:'',partyId:'',drawer:'',bank:'',branch:'',date:today,dueDate:'',reference:'',contraAccount:''};mErr.value='';loadCusts();loadSupps();if(!ledgerAccs.value.length)loadLedgerAccs();mChq.value=true;}
+function pickChqParty(){const list=eChq.value.direction==='received'?custs.value:supps.value;const p=list.find(x=>x._id===eChq.value.partyId);if(p)eChq.value.party=p.name;}
+// Endorse a received cheque (third-party cheque passed on as payment)
+const mChqEnd=ref(false);const eEnd=ref({});const endPOs=ref([]);
+function openEndorse(c){eEnd.value={cheque:c,toType:'supplier',supplierId:'',purchaseId:'',expenseAccount:'',payee:'',date:today,note:''};endPOs.value=[];mErr.value='';loadSupps();if(!ledgerAccs.value.length)loadLedgerAccs();mChqEnd.value=true;}
+async function loadEndPOs(){eEnd.value.purchaseId='';endPOs.value=[];if(!eEnd.value.supplierId)return;try{endPOs.value=(await api('GET','/purchases?supplier='+eEnd.value.supplierId)).filter(p=>p.balance>0.009);}catch(e){}}
+async function saveEndorse(){const e=eEnd.value;saving.value=true;mErr.value='';try{await api('POST','/cheques/'+e.cheque._id+'/endorse',{toType:e.toType,supplierId:e.supplierId||undefined,purchaseId:e.purchaseId||undefined,expenseAccount:e.expenseAccount||undefined,payee:e.payee,date:e.date,note:e.note});mChqEnd.value=false;loadChqs();}catch(x){mErr.value=x.message;}saving.value=false;}
+async function reverseEndorse(c,mode){const msg=mode==='undo'?'Undo the endorsement of cheque #'+c.chequeNo+'? It goes back to "in hand".':'Mark endorsed cheque #'+c.chequeNo+' as bounced? '+(c.endorsement?.payee||'The payee')+' will be owed again and '+c.party+' will owe you again.';if(!confirm(msg))return;try{await api('POST','/cheques/'+c._id+'/endorsement/reverse',{mode});loadChqs();}catch(e){alert(e.message);}}
 async function saveChq(){if(!eChq.value.chequeNo||!eChq.value.dueDate){mErr.value='Cheque number and due date required';return;}saving.value=true;mErr.value='';try{if(eChq.value._id)await api('PUT','/cheques/'+eChq.value._id,eChq.value);else await api('POST','/cheques',eChq.value);mChq.value=false;loadChqs();}catch(e){mErr.value=e.message;}saving.value=false;}
-function qChqSts(chq,sts,ev){if(!sts)return;ev.target.value='';if(sts==='deposited'||sts==='cleared'){chqStsData.value={cheque:chq,status:sts,accountId:chq.account||'',depositedDate:today,clearedDate:today};mChqSts.value=true;}else{api('PATCH','/cheques/'+chq._id+'/status',{status:sts}).then(()=>loadChqs()).catch(e=>alert(e.message));}}
+function qChqSts(chq,sts,ev){if(!sts)return;ev.target.value='';if(sts==='endorse'){openEndorse(chq);return;}if(sts==='end-undo'||sts==='end-bounced'){reverseEndorse(chq,sts==='end-undo'?'undo':'bounced');return;}if((sts==='bounced'||sts==='cancelled')&&!confirm('Mark cheque #'+chq.chequeNo+' as '+sts+'? This posts a reversing entry.'))return;if(sts==='deposited'||sts==='cleared'){chqStsData.value={cheque:chq,status:sts,accountId:chq.account||'',depositedDate:today,clearedDate:today};mChqSts.value=true;}else{api('PATCH','/cheques/'+chq._id+'/status',{status:sts}).then(()=>loadChqs()).catch(e=>alert(e.message));}}
 async function saveChqSts(){saving.value=true;const{cheque,status,accountId,depositedDate,clearedDate}=chqStsData.value;try{await api('PATCH','/cheques/'+cheque._id+'/status',{status,accountId,depositedDate,clearedDate});mChqSts.value=false;loadChqs();loadBaccs();}catch(e){alert(e.message);}saving.value=false;}
 async function delChq(id){if(!confirm('Delete cheque?'))return;try{await api('DELETE','/cheques/'+id);loadChqs();}catch(e){alert(e.message);}}
 function openTxRate(t){eTxRate.value=t?{...t,reducedBy:[...(t.reducedBy||[])],businessTax:t.businessTax||false}:{code:'',name:'',rate:0,type:'both',appliesTo:'all',creditable:false,reducedBy:[],businessTax:false,description:''};mErr.value='';loadAllTxRates();mTxRate.value=true;}
@@ -1518,7 +1525,7 @@ srchProdsPO,addProdToPO,addTaxToPOLine,addTaxToLC,calcPO,openNewPO,savePO,
 openCust,saveCust,openSupp,saveSupp,viewSuppHist,
 openCA,saveCA,openXfer,saveXfer,openExp,saveExp,delExp,openPay,savePay,
 openBAcc,saveBAcc,openBTx,saveBTx,delBTx,viewStmt,loadStmt,loadBTxs,mStockMovement,stockMovementData,viewStockMovement,mPODetail,poDet,newStage,openPODetail,savePayStage,delPayStage,toggleGoodsReceived,finalizePO,savePONotes,poFinFilt,poDetSrch,poDetSrchRes,poDetSrchProds,poDetAddItem,poDetAddManualItem,poDetRemoveItem,poDetAddLC,poDetRemoveLC,calcPodet:calcPoDet,savePoDetItems,poDetAddTaxToItem,mInvDetail,invDet,openInvDetail,converting,convertToInvoice,mDelivery,delivering,delItems,delDoc,openDeliveryModal,saveDelivery,mReturn,retInv,retItems,retTotal,retReason,retDate,retRestock,openReturn,calcReturnTotal,saveReturn,
-openChq,saveChq,qChqSts,saveChqSts,delChq,
+openChq,saveChq,qChqSts,saveChqSts,delChq,pickChqParty,mChqEnd,eEnd,endPOs,openEndorse,loadEndPOs,saveEndorse,reverseEndorse,payChqDate,payChqBank,payChqDrawer,
 openTxRate,saveTxRate,disableTxRate,openInvType,saveInvType,delInvType,mTaxDetail,taxDetailData,openTaxDetail,
 openLoc,saveLoc,openUser,saveUser,disableUser,viewCashLedger,loadCashLedger,cashLedgerAcc,cashLedRows,cashLedFr,cashLedTo,selectedCashRow,mEditCashEntry,eCashEntry,editCashEntry,saveCashEntry,delCashEntry,addTaxToInvType,applyInvTypeTaxConfig,toggleInvTypeTax,
 loadLed,loadAccLed,loadTaxRpt,loadTaxMonthly,loadRpt,expandedRptRows,toggleRptRow,loadInvs,loadExps,mCat,eCat,savedCats,pCatFilter,saveCat,delCat,prodsByCategory,mQuickProd,openQuickProd,saveQuickProd,toggleLooseMode,

@@ -12,6 +12,7 @@ const bankStatementLineSchema = new mongoose.Schema({
   amount:         { type: Number, required: true }, // signed: + credit (money in), - debit (money out)
   direction:      { type: String, enum: ['credit','debit'], required: true },
   balance:        { type: Number },                 // running balance from CSV
+  seq:            { type: Number },                 // chronological position within its import
   importBatch:    { type: String, index: true },    // groups one CSV import
   rawRow:         { type: String, default: '' },    // original CSV row
   dedupeKey:      { type: String, index: true },    // hash to prevent double-import
@@ -20,7 +21,8 @@ const bankStatementLineSchema = new mongoose.Schema({
     kind:   { type: String, enum: ['invoice','expense','cheque','banktx','income','reimbursement'] },
     refId:  { type: mongoose.Schema.Types.ObjectId },
     label:  { type: String, default: '' },
-    amount: { type: Number, required: true }
+    amount: { type: Number, required: true },
+    prevStatus: { type: String }   // cheque status before reconciling, restored on undo
   }],
   reconciledAt: { type: Date },
   notes:        { type: String, default: '' }

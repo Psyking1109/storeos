@@ -113,6 +113,19 @@ router.post('/import', async (req, res) => {
 
     if (previewOnly) return res.json({ preview: previewRows, total: toImport.length });
 
+    // Chronological position within the file, so same-day lines keep statement order.
+    // ComBank lists newest first; confirm with the running balance (or dates) when possible.
+    let newestFirst = true;
+    const r0 = toImport[0], r1 = toImport[1];
+    if (r0 && r1) {
+      if (r0.balance != null && r1.balance != null) {
+        // newest first: row0 = row1 + row0.amount; oldest first: row1 = row0 + row1.amount
+        if (Math.abs((r1.balance + r0.amount) - r0.balance) < 0.01) newestFirst = true;
+        else if (Math.abs((r0.balance + r1.amount) - r1.balance) < 0.01) newestFirst = false;
+      } else if (+toImport[toImport.length - 1].date > +r0.date) newestFirst = false;
+    }
+    toImport.forEach((r, i) => { r.seq = newestFirst ? toImport.length - 1 - i : i; });
+
     // Dedupe
     const existKeys = new Set(
       (await BankStatementLine.find({ dedupeKey: { $in: toImport.map(r => r.dedupeKey) } })
@@ -152,7 +165,7 @@ router.get('/lines', async (req, res) => {
       if (from) q.date.$gte = new Date(from);
       if (to)   { const d = new Date(to); d.setHours(23, 59, 59); q.date.$lte = d; }
     }
-    const lines = await BankStatementLine.find(q).sort({ date: -1, createdAt: -1 }).limit(500).lean();
+    const lines = await BankStatementLine.find(q).sort({ date: -1, seq: -1, createdAt: -1 }).limit(500).lean();
     res.json(lines);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -167,7 +180,7 @@ router.get('/summary', async (req, res) => {
     if (!acc) return res.status(404).json({ error: 'Account not found' });
 
     const lastLine = await BankStatementLine.findOne({ bankAccount: account })
-      .sort({ date: -1, createdAt: -1 }).select('balance').lean();
+      .sort({ date: -1, seq: -1, createdAt: -1 }).select('balance').lean();
     const statementBalance = lastLine?.balance ?? null;
 
     const agg = await BankStatementLine.aggregate([
@@ -377,6 +390,25 @@ router.post('/:lineId/reconcile', async (req, res) => {
     if (Math.abs(matchTotal - absLineAmt) > 0.02)
       return res.status(400).json({ error: `Match total (${matchTotal.toFixed(2)}) must equal line amount (${absLineAmt.toFixed(2)})` });
 
+    // New postings must follow the line: money in = Dr Bank, money out = Cr Bank
+    const moneyIn = line.direction === 'credit';
+    for (const m of matches) {
+      if (m.refId) {
+        if (m.kind !== 'cheque') continue;
+        const chq = await Cheque.findById(m.refId).lean();
+        if (!chq) return res.status(400).json({ error: 'Cheque not found' });
+        if (['bounced','cancelled','returned','endorsed'].includes(chq.status))
+          return res.status(400).json({ error: `Cheque #${chq.chequeNo} is ${chq.status}` });
+        if ((chq.direction === 'received') !== moneyIn)
+          return res.status(400).json({ error: `A ${chq.direction} cheque can only match a money-${chq.direction === 'received' ? 'in' : 'out'} line` });
+        continue;
+      }
+      if ((m.kind === 'reimbursement' || m.kind === 'income') && !moneyIn)
+        return res.status(400).json({ error: `"${m.kind}" can only be booked against a money-in line` });
+      if (m.kind === 'expense' && moneyIn)
+        return res.status(400).json({ error: 'A bank charge can only be booked against a money-out line' });
+    }
+
     const acc = await BankAccount.findById(line.bankAccount).lean();
     const bankName    = acc ? acc.name : 'Bank';
     const reconRef    = `RECON-${line._id}`;
@@ -388,10 +420,41 @@ router.post('/:lineId/reconcile', async (req, res) => {
 
       if (m.refId) {
         // Existing record — just link; clear cheques
+        let prevStatus;
         if (m.kind === 'cheque') {
-          await Cheque.findByIdAndUpdate(m.refId, { status: 'cleared', clearedDate: line.date });
+          const chq = await Cheque.findById(m.refId);
+          prevStatus = chq.status;
+          // Post the bank side only if the cheque never reached the bank ledger
+          // (received still pending, or issued not yet cleared via Cheques)
+          const posted = await Ledger.exists({ accountType: 'bank', $or: [
+            { sourceType: 'cheque', sourceId: chq._id },
+            { sourceType: 'reconciliation', narration: `cheque:${chq._id}` },
+          ] });
+          if (!posted) {
+            const amt  = chq.amount;
+            const desc = `Cheque ${chq.direction === 'received' ? 'deposited' : 'cleared'} #${chq.chequeNo}`;
+            const base = { date: line.date, description: desc, reference: chq.chequeNo, sourceType: 'reconciliation', sourceId: line._id, narration: `cheque:${chq._id}` };
+            if (chq.direction === 'received') {
+              await BankAccount.findByIdAndUpdate(line.bankAccount, { $inc: { currentBalance: amt } });
+              ledgerEntries.push(
+                { ...base, account: bankName, accountType: 'bank', debit: amt, credit: 0 },
+                { ...base, account: 'Cheques Receivable', accountType: 'cheque', debit: 0, credit: amt }
+              );
+              if (!chq.depositedDate) chq.depositedDate = line.date;
+            } else {
+              await BankAccount.findByIdAndUpdate(line.bankAccount, { $inc: { currentBalance: -amt } });
+              ledgerEntries.push(
+                { ...base, account: 'Cheques Payable', accountType: 'cheque', debit: amt, credit: 0 },
+                { ...base, account: bankName, accountType: 'bank', debit: 0, credit: amt }
+              );
+            }
+            if (!chq.account) { chq.account = line.bankAccount; chq.accountName = bankName; }
+          }
+          chq.status = 'cleared';
+          chq.clearedDate = line.date;
+          await chq.save();
         }
-        savedMatches.push({ kind: m.kind, refId: m.refId, label: m.label || '', amount: mAmt });
+        savedMatches.push({ kind: m.kind, refId: m.refId, label: m.label || '', amount: mAmt, prevStatus });
 
       } else if (m.kind === 'reimbursement') {
         // New reimbursable-cost entry (credit line extra: money came IN)
@@ -499,7 +562,7 @@ router.post('/:lineId/undo', async (req, res) => {
     // Restore cheques
     for (const m of (line.matches || [])) {
       if (m.kind === 'cheque' && m.refId) {
-        await Cheque.findByIdAndUpdate(m.refId, { status: 'deposited', clearedDate: null });
+        await Cheque.findByIdAndUpdate(m.refId, { status: m.prevStatus || 'deposited', clearedDate: null });
       }
     }
 

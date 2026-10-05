@@ -62,9 +62,14 @@ router.post('/', requireAuth, async (req, res) => {
       if (!acc) return res.status(404).json({ error: 'Bank account not found' });
       sourceAccountName = acc.name;
       data.bankAccountName = acc.name;
+    } else if (data.paymentMethod === 'bank') {
+      return res.status(400).json({ error: 'Select the bank account this was paid from' });
+    } else if (data.paymentMethod === 'cash') {
+      sourceAccountName = 'Cash';
     } else {
       sourceAccountName = data.paymentMethod === 'cheque' ? 'Cheques Payable' : 'Accounts Payable';
     }
+    const sourceAccountType = { bank: 'bank', cash: 'cash', cheque: 'cheque' }[data.paymentMethod] || 'payable';
 
     const expense = new Expense(data);
     await expense.save();
@@ -74,7 +79,7 @@ router.post('/', requireAuth, async (req, res) => {
       { date: data.date, account: data.ledgerAccountName||data.category||'Expenses', accountType: 'expense', debit: Number(data.amount), credit: 0,
         description: data.description, reference: data.reference || '', sourceType: 'expense', sourceId: expense._id,
         narration: data.vendor || '' },
-      { date: data.date, account: sourceAccountName, accountType: data.paymentMethod === 'bank' ? 'bank' : 'cash',
+      { date: data.date, account: sourceAccountName, accountType: sourceAccountType,
         debit: 0, credit: Number(data.amount), description: data.description, reference: data.reference || '',
         sourceType: 'expense', sourceId: expense._id }
     ]);
@@ -88,6 +93,10 @@ router.delete('/:id', requireAuth, requireRole('admin','manager'), async (req, r
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
     const exp = await Expense.findById(req.params.id);
     if (!exp) return res.status(404).json({ error: 'Not found' });
+    // Created by bank reconciliation: its ledger rows belong to the statement line,
+    // and a reimbursement is money IN, so reversing it here would move the bank the wrong way
+    if ((exp.reference || '').startsWith('RECON-'))
+      return res.status(400).json({ error: 'This entry was booked from a bank statement line. Undo it from Bank Reconciliation instead.' });
     // Reverse the balance deduction
     if (exp.cashAccount) await CashAccount.findByIdAndUpdate(exp.cashAccount, { $inc: { currentBalance: exp.amount } });
     if (exp.bankAccount)  await BankAccount.findByIdAndUpdate(exp.bankAccount,  { $inc: { currentBalance: exp.amount } });

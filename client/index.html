@@ -748,13 +748,13 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
   <div class="topbar"><h2>Cheques</h2>
     <div class="tba">
       <select v-model="chqf.dir" @change="loadChqs" class="fc" style="width:110px"><option value="">All</option><option value="received">Received</option><option value="issued">Issued</option></select>
-      <select v-model="chqf.sts" @change="loadChqs" class="fc" style="width:110px"><option value="">All Status</option><option value="pending">Pending</option><option value="deposited">Deposited</option><option value="cleared">Cleared</option><option value="bounced">Bounced</option></select>
+      <select v-model="chqf.sts" @change="loadChqs" class="fc" style="width:130px"><option value="">All Status</option><option value="inhand">In hand (received)</option><option value="pending">Pending</option><option value="deposited">Deposited</option><option value="cleared">Cleared</option><option value="endorsed">Endorsed (passed on)</option><option value="bounced">Bounced</option><option value="cancelled">Cancelled</option></select>
       <button class="btn btn-p" @click="openChq()">+ New Cheque</button>
     </div>
   </div>
   <div class="content">
     <div class="sg" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
-      <div class="sc g"><div class="sl">Receivable (Pending)</div><div class="sv sm cg">{{f(chqs.filter(c=>c.direction==='received'&&c.status==='pending').reduce((s,c)=>s+c.amount,0))}}</div></div>
+      <div class="sc g"><div class="sl">In Hand (received)</div><div class="sv sm cg">{{f(chqs.filter(c=>c.direction==='received'&&c.status==='pending').reduce((s,c)=>s+c.amount,0))}}</div><div style="font-size:10px;color:var(--tx3);margin-top:2px" v-if="chqs.some(c=>c.thirdParty&&c.status==='pending')">incl. 3rd-party {{f(chqs.filter(c=>c.thirdParty&&c.status==='pending').reduce((s,c)=>s+c.amount,0))}}</div></div>
       <div class="sc b"><div class="sl">Deposited</div><div class="sv sm cb2">{{f(chqs.filter(c=>c.direction==='received'&&c.status==='deposited').reduce((s,c)=>s+c.amount,0))}}</div></div>
       <div class="sc r"><div class="sl">Issued (Pending)</div><div class="sv sm cr">{{f(chqs.filter(c=>c.direction==='issued'&&c.status==='pending').reduce((s,c)=>s+c.amount,0))}}</div></div>
       <div class="sc p"><div class="sl">Bounced</div><div class="sv sm cp">{{f(chqs.filter(c=>c.status==='bounced').reduce((s,c)=>s+c.amount,0))}}</div></div>
@@ -765,19 +765,34 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
         <tr v-for="c in chqs" :key="c._id">
           <td class="mn ca fw">{{c.chequeNo}}</td>
           <td><span class="badge" :class="c.direction==='received'?'bin':'bout'">{{c.direction}}</span></td>
-          <td style="color:var(--txt);font-weight:500">{{c.party}}</td><td class="cm">{{c.bank||'—'}}</td>
+          <td style="color:var(--txt);font-weight:500">{{c.party}}
+            <div v-if="c.thirdParty" style="font-size:10px;color:var(--tx3)"><span class="badge bpend" style="font-size:9px">3rd party</span> drawn by {{c.drawer}}</div>
+            <div v-if="c.status==='endorsed'&&c.endorsement" style="font-size:10px;color:var(--tx2)">→ endorsed to {{c.endorsement.payee||c.endorsement.expenseAccount}}<span v-if="c.endorsement.purchaseNo"> ({{c.endorsement.purchaseNo}})</span></div>
+          </td><td class="cm">{{c.bank||'—'}}</td>
           <td class="mn cm">{{fd(c.date)}}</td>
           <td class="mn" :class="chqDue(c)?'cr':'cm'">{{fd(c.dueDate)}}{{chqDue(c)?' ⚠️':''}}</td>
           <td class="mn fw" style="text-align:right">{{f(c.amount)}}</td>
           <td><span class="badge" :class="chqSC(c.status)">{{c.status}}</span></td>
           <td>
             <div class="fx g6">
-              <select v-if="['pending','deposited'].includes(c.status)" @change="e=>qChqSts(c,e.target.value,e)" class="fc" style="padding:3px 6px;font-size:11px;width:100px">
+              <select v-if="['pending','deposited','cleared','endorsed'].includes(c.status)" @change="e=>qChqSts(c,e.target.value,e)" class="fc" style="padding:3px 6px;font-size:11px;width:120px">
                 <option value="">Update...</option>
-                <option v-if="c.status==='pending'" value="deposited">Deposit</option>
-                <option value="cleared">Cleared</option><option value="bounced">Bounced</option><option value="cancelled">Cancel</option>
+                <template v-if="c.direction==='received'">
+                  <option v-if="c.status==='pending'" value="deposited">Deposit to bank</option>
+                  <option v-if="c.status==='pending'" value="endorse">Endorse / pass on…</option>
+                  <option v-if="c.status==='deposited'" value="cleared">Cleared</option>
+                  <option v-if="['deposited','cleared'].includes(c.status)" value="bounced">Bounced</option>
+                  <option v-if="c.status==='pending'" value="cancelled">Return to customer</option>
+                  <option v-if="c.status==='endorsed'" value="end-undo">Undo endorsement</option>
+                  <option v-if="c.status==='endorsed'" value="end-bounced">Bounced at payee</option>
+                </template>
+                <template v-else>
+                  <option v-if="c.status==='pending'" value="cleared">Cleared</option>
+                  <option v-if="c.status==='pending'" value="bounced">Bounced</option>
+                  <option v-if="c.status==='pending'" value="cancelled">Cancel</option>
+                </template>
               </select>
-              <button class="btn btn-d btn-sm" @click="delChq(c._id)">×</button>
+              <button v-if="c.status==='pending'&&!c.postedBy" class="btn btn-d btn-sm" @click="delChq(c._id)">×</button>
             </div>
           </td>
         </tr>
@@ -1492,9 +1507,6 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
   </div>
 </template>
 
-</div><!-- end .main -->
-
-
 <!-- CHART OF ACCOUNTS PAGE -->
 <template v-if="pg==='laccs'">
   <div class="topbar"><h2>📋 Chart of Accounts</h2>
@@ -1551,6 +1563,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <th style="text-align:left">Account</th><th style="text-align:left">Type</th>
           <th style="text-align:right">Debit Total</th>
           <th style="text-align:right">Credit Total</th>
+          <th style="text-align:right">Balance</th>
           <th style="text-align:right">Balance Dr</th>
           <th style="text-align:right">Balance Cr</th>
         </tr></thead>
@@ -1560,14 +1573,15 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
             <td><span class="badge" style="font-size:10px;text-transform:capitalize">{{r.type}}</span></td>
             <td style="text-align:right;font-family:var(--fm);color:var(--tx2)">{{f(r.debit)}}</td>
             <td style="text-align:right;font-family:var(--fm);color:var(--tx2)">{{f(r.credit)}}</td>
+            <td style="text-align:right;font-family:var(--fm);font-weight:700" :class="r.balance>0?'ca':r.balance<0?'cb2':''">{{f(Math.abs(r.balance||0))}} <span style="font-size:9px;color:var(--tx3)">{{r.balance>0?'Dr':r.balance<0?'Cr':''}}</span></td>
             <td style="text-align:right;font-family:var(--fm);font-weight:600;color:var(--grn)">{{r.balanceDr?f(r.balanceDr):'—'}}</td>
             <td style="text-align:right;font-family:var(--fm);font-weight:600;color:var(--red)">{{r.balanceCr?f(r.balanceCr):'—'}}</td>
           </tr>
-          <tr v-if="!(trialBalance.accounts||[]).length"><td colspan="6" class="emp"><div class="eic">⚖️</div><div>No transactions yet.</div></td></tr>
+          <tr v-if="!(trialBalance.accounts||[]).length"><td colspan="7" class="emp"><div class="eic">⚖️</div><div>No transactions yet.</div></td></tr>
         </tbody>
         <tfoot v-if="(trialBalance.accounts||[]).length">
           <tr style="background:var(--sur2);font-weight:700">
-            <td colspan="4" style="text-align:right;color:var(--txt)">TOTALS</td>
+            <td colspan="5" style="text-align:right;color:var(--txt)">TOTALS</td>
             <td style="text-align:right;font-family:var(--fm);color:var(--grn);font-size:14px">{{f(trialBalance.totalDr||0)}}</td>
             <td style="text-align:right;font-family:var(--fm);color:var(--red);font-size:14px">{{f(trialBalance.totalCr||0)}}</td>
           </tr>
@@ -1580,6 +1594,119 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
     </div>
   </div>
 </template>
+
+<!-- RECONCILIATION PAGE -->
+<template v-if="pg==='recon'">
+  <div class="topbar">
+    <button class="btn btn-o btn-sm" @click="pg='bank'" style="margin-right:6px">← Banking</button>
+    <h2>Bank Reconciliation<span v-if="reconAccount" class="mn cm" style="font-size:12px;font-weight:400;margin-left:8px">— {{baccs.find(a=>a._id===reconAccount)?.name||''}}</span></h2>
+    <div class="tba">
+      <select v-model="reconAccount" @change="loadReconLines();loadReconSummary()" class="fc" style="width:200px">
+        <option value="">Select account…</option>
+        <option v-for="a in baccs" :key="a._id" :value="a._id">{{a.name}}</option>
+      </select>
+      <button class="btn btn-p" @click="mReconImport=true" :disabled="!reconAccount">Import CSV</button>
+    </div>
+  </div>
+  <div class="content">
+    <!-- Summary bar -->
+    <div class="sg" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px" v-if="reconAccount">
+      <div class="sc g">
+        <div class="sl">Book Balance</div>
+        <div class="sv" :class="reconSummary.bookBalance>=0?'cg':'cr'">{{f(reconSummary.bookBalance||0)}}</div>
+        <div class="ss">From bank account</div>
+      </div>
+      <div class="sc b">
+        <div class="sl">Statement Balance</div>
+        <div class="sv cb2" v-if="reconSummary.statementBalance!=null">{{f(reconSummary.statementBalance)}}</div>
+        <div class="sv cm" v-else>No import yet</div>
+        <div class="ss">Last imported line</div>
+      </div>
+      <div class="sc" :class="Math.abs(reconDifference)<0.01?'g':'r'">
+        <div class="sl">Difference</div>
+        <div class="sv" :class="Math.abs(reconDifference)<0.01?'cg':'cr'">{{reconSummary.statementBalance!=null?f(reconDifference):'—'}}</div>
+        <div class="ss" :class="Math.abs(reconDifference)<0.01?'cg':''">{{Math.abs(reconDifference)<0.01?'Balanced!':'Confirm more matches'}}</div>
+      </div>
+    </div>
+
+    <div v-if="!reconAccount" class="card" style="text-align:center;padding:48px">
+      <div style="font-size:32px;margin-bottom:8px">✅</div>
+      <div style="color:var(--tx2)">Select a bank account to start reconciling</div>
+    </div>
+
+    <template v-if="reconAccount">
+      <!-- Tabs + status counts -->
+      <div style="display:flex;gap:6px;margin-bottom:12px;align-items:center">
+        <button class="btn btn-o btn-sm" :class="reconTab==='unreconciled'?'btn-p':''" @click="reconTab='unreconciled';loadReconLines()">
+          Unreconciled <span v-if="reconSummary.statusCounts?.unreconciled" class="nbadge" style="position:static;margin-left:4px">{{reconSummary.statusCounts.unreconciled}}</span>
+        </button>
+        <button class="btn btn-o btn-sm" :class="reconTab==='reconciled'?'btn-p':''" @click="reconTab='reconciled';loadReconLines()">Reconciled</button>
+        <button class="btn btn-o btn-sm" :class="reconTab==='ignored'?'btn-p':''" @click="reconTab='ignored';loadReconLines()">Ignored</button>
+        <button class="btn btn-o btn-sm" @click="loadReconLines()" style="margin-left:auto">↻ Refresh</button>
+      </div>
+
+      <div class="card">
+        <div class="tw">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:90px">Date</th>
+                <th>Description</th>
+                <th style="width:120px;text-align:right">Amount</th>
+                <th v-if="reconTab==='unreconciled'" style="width:200px">Best Match</th>
+                <th v-if="reconTab==='reconciled'" style="width:200px">Matched To</th>
+                <th style="width:160px">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="reconLoading"><td colspan="5" class="emp">Loading…</td></tr>
+              <tr v-else-if="!reconLines.length"><td colspan="5" class="emp"><div class="eic">✅</div><div>No {{reconTab}} lines</div></td></tr>
+              <tr v-for="line in reconLines" :key="line._id">
+                <td class="mn cm">{{fd(line.date)}}</td>
+                <td>
+                  <div style="font-weight:500;color:var(--txt);font-size:13px">{{line.note||line.description}}</div>
+                  <div class="cm" style="font-size:10px" v-if="line.counterparty">{{line.counterparty}}</div>
+                  <div class="cm" style="font-size:10px" v-if="line.reference">Ref: {{line.reference}}</div>
+                </td>
+                <td class="mn fw" style="text-align:right" :class="line.direction==='credit'?'cg':'cr'">
+                  {{line.direction==='credit'?'+':'-'}}{{f(Math.abs(line.amount))}}
+                  <div style="font-size:9px;font-weight:400;color:var(--tx3)">{{line.direction==='credit'?'Money in · Dr Bank':'Money out · Cr Bank'}}</div>
+                </td>
+                <!-- Unreconciled: show best suggestion inline -->
+                <td v-if="reconTab==='unreconciled'">
+                  <span v-if="line._bestSugg" class="badge" :class="line._bestSugg.band==='High'?'bpaid':line._bestSugg.band==='Medium'?'bpend':'bout'" style="font-size:10px">{{line._bestSugg.band}}</span>
+                  <span v-if="line._bestSugg" style="font-size:11px;color:var(--txt);margin-left:4px">{{line._bestSugg.label}}</span>
+                  <span v-if="!line._bestSugg" class="cm" style="font-size:11px">—</span>
+                </td>
+                <!-- Reconciled: show what it was matched to -->
+                <td v-if="reconTab==='reconciled'">
+                  <div v-for="m in (line.matches||[])" :key="m.label" style="font-size:11px;color:var(--txt)">
+                    <span class="badge bpaid" style="font-size:9px;margin-right:3px">{{m.kind}}</span>{{m.label}} {{f(m.amount)}}
+                  </div>
+                </td>
+                <!-- Actions -->
+                <td>
+                  <div class="fx g6" v-if="reconTab==='unreconciled'">
+                    <button class="btn btn-o btn-sm" @click="openMatch(line)" title="View suggestions & match">Match</button>
+                    <button class="btn btn-o btn-sm" @click="splitLine(line)" title="Split into invoice + extra">Split</button>
+                    <button class="btn btn-o btn-sm" @click="bookBankOnly(line)" title="Book as bank fee or interest">Fee</button>
+                    <button class="btn btn-sm" style="background:none;border:1px solid var(--brd);color:var(--tx3)" @click="ignoreLine(line)" title="Ignore this line">Ignore</button>
+                  </div>
+                  <div class="fx g6" v-else>
+                    <button class="btn btn-o btn-sm" @click="undoReconcile(line)">Undo</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </template>
+  </div>
+</template>
+
+</div><!-- end .main -->
+
 
 <!-- ═══════════════════════ MODALS ═══════════════════════ -->
 
@@ -1951,7 +2078,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <div class="fl" v-if="eExp.paymentMethod==='bank'"><label>From Bank Account</label>
             <select v-model="eExp.bankAccount" class="fc">
               <option value="">— Select —</option>
-              <option v-for="b in bAccs" :key="b._id" :value="b._id">{{b.name}} ({{f(b.currentBalance)}})</option>
+              <option v-for="b in baccs" :key="b._id" :value="b._id">{{b.name}} ({{f(b.currentBalance)}})</option>
             </select>
           </div>
           <div class="fl" v-if="eExp.paymentMethod==='cheque'"><label>Cheque Number</label><input v-model="eExp.chequeNo" class="fc"/></div>
@@ -1985,7 +2112,11 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <option v-for="a in baccs" :key="a._id" :value="a._id">{{a.name}}</option>
         </select>
       </div>
-      <div class="fl" v-if="payMode==='cheque'"><label>Cheque No.</label><input v-model="payChqNo" class="fc"/></div>
+      <template v-if="payMode==='cheque'">
+        <div class="fr"><div class="fl"><label>Cheque No. *</label><input v-model="payChqNo" class="fc"/></div><div class="fl"><label>Cheque / Due Date</label><input v-model="payChqDate" type="date" class="fc"/></div></div>
+        <div class="fr" v-if="payDoc?.invoiceNo"><div class="fl"><label>Drawn On Bank</label><input v-model="payChqBank" class="fc"/></div><div class="fl"><label>Drawer (if 3rd party)</label><input v-model="payChqDrawer" class="fc" placeholder="Blank = customer"/></div></div>
+        <div style="font-size:11px;color:var(--tx3)">{{payDoc?.invoiceNo?'Goes to Cheques as "in hand". Deposit or endorse it from there.':'Goes to Cheques as issued. It leaves the bank when you mark it cleared.'}}</div>
+      </template>
       <div class="fl"><label>Date</label><input v-model="payDate" type="date" class="fc"/></div>
     </div></div>
     <div class="mf"><button class="btn btn-o" @click="mPay=false">Cancel</button><button class="btn btn-p" @click="savePay" :disabled="saving">Record Payment</button></div>
@@ -2244,20 +2375,41 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
     <div class="mb">
       <div v-if="mErr" class="al al-d">{{mErr}}</div>
       <div style="display:flex;gap:6px;margin-bottom:12px">
-        <button class="btn" :class="eChq.direction==='received'?'btn-g':'btn-o'" @click="eChq.direction='received'">Received</button>
-        <button class="btn" :class="eChq.direction==='issued'?'btn-d':'btn-o'" @click="eChq.direction='issued'">Issued</button>
+        <button class="btn" :class="eChq.direction==='received'?'btn-g':'btn-o'" @click="eChq.direction='received';eChq.partyId=''" :disabled="!!eChq._id">Received</button>
+        <button class="btn" :class="eChq.direction==='issued'?'btn-d':'btn-o'" @click="eChq.direction='issued';eChq.partyId=''" :disabled="!!eChq._id">Issued</button>
       </div>
       <div class="fg">
         <div class="fr" style="grid-template-columns:1fr 1fr 1fr">
           <div class="fl"><label>Cheque No. *</label><input v-model="eChq.chequeNo" class="fc" placeholder="000123"/></div>
-          <div class="fl"><label>Amount *</label><input v-model="eChq.amount" type="number" step="0.01" class="fc" @blur="eChq.amount=+eChq.amount||0"/></div>
-          <div class="fl"><label>Status</label><select v-model="eChq.status" class="fc"><option value="pending">Pending</option><option value="deposited">Deposited</option><option value="cleared">Cleared</option><option value="bounced">Bounced</option><option value="cancelled">Cancelled</option></select></div>
+          <div class="fl"><label>Amount *</label><input v-model="eChq.amount" type="number" step="0.01" class="fc" @blur="eChq.amount=+eChq.amount||0" :disabled="!!eChq._id"/></div>
+          <div class="fl"><label>Status</label><div class="fc" style="background:var(--sur2)">{{eChq.status||'pending'}}</div></div>
         </div>
-        <div class="fr"><div class="fl"><label>{{eChq.direction==='received'?'Received From':'Issued To'}} *</label><input v-model="eChq.party" class="fc"/></div><div class="fl"><label>Reference</label><input v-model="eChq.reference" class="fc"/></div></div>
+        <div class="fr">
+          <div class="fl"><label>{{eChq.direction==='received'?'Customer':'Supplier'}}</label>
+            <select v-model="eChq.partyId" class="fc" @change="pickChqParty" :disabled="!!eChq._id">
+              <option value="">— Not linked —</option>
+              <option v-for="p in (eChq.direction==='received'?custs:supps)" :key="p._id" :value="p._id">{{p.name}}</option>
+            </select>
+          </div>
+          <div class="fl"><label>{{eChq.direction==='received'?'Received From':'Issued To'}} *</label><input v-model="eChq.party" class="fc"/></div>
+        </div>
+        <div class="fr" v-if="eChq.direction==='received'">
+          <div class="fl"><label>Drawer (written by)</label><input v-model="eChq.drawer" class="fc" placeholder="Leave blank if the customer wrote it"/></div>
+          <div class="fl" style="justify-content:flex-end"><div style="font-size:11px;color:var(--tx3);padding-top:18px">A drawer different from the customer marks it as a <strong>third-party cheque</strong>. It can be deposited or endorsed to a supplier.</div></div>
+        </div>
+        <div class="fr">
+          <div class="fl"><label>Reference</label><input v-model="eChq.reference" class="fc" placeholder="Invoice / PO no."/></div>
+          <div class="fl" v-if="!eChq._id"><label>{{eChq.direction==='received'?'Payment for':'Paying for'}}</label>
+            <select v-model="eChq.contraAccount" class="fc">
+              <option value="">{{eChq.direction==='received'?'Customer account (Accounts Receivable)':'Supplier account (Accounts Payable)'}}</option>
+              <option v-for="a in ledgerAccs.filter(a=>a.active!==false&&(eChq.direction==='received'?['income','liability','equity'].includes(a.type):['expense','asset','liability'].includes(a.type)))" :key="a._id" :value="a.name">{{a.name}} ({{a.type}})</option>
+            </select>
+          </div>
+        </div>
         <div class="fr" style="grid-template-columns:1fr 1fr 1fr">
           <div class="fl"><label>Cheque Date</label><input v-model="eChq.date" type="date" class="fc"/></div>
           <div class="fl"><label>Due / Maturity Date *</label><input v-model="eChq.dueDate" type="date" class="fc"/></div>
-          <div class="fl"><label>Bank Account</label><select v-model="eChq.account" class="fc"><option value="">— None —</option><option v-for="a in baccs" :key="a._id" :value="a._id">{{a.name}}</option></select></div>
+          <div class="fl" v-if="eChq.direction==='issued'"><label>Drawn on (our account)</label><select v-model="eChq.account" class="fc"><option value="">— Select —</option><option v-for="a in baccs" :key="a._id" :value="a._id">{{a.name}}</option></select></div>
         </div>
         <div class="fr"><div class="fl"><label>Drawn On Bank</label><input v-model="eChq.bank" class="fc" placeholder="Commercial Bank"/></div><div class="fl"><label>Branch</label><input v-model="eChq.branch" class="fc"/></div></div>
       </div>
@@ -2275,6 +2427,40 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       <div class="fl" v-if="chqStsData.status==='cleared'"><label>Cleared Date</label><input v-model="chqStsData.clearedDate" type="date" class="fc"/></div>
     </div></div>
     <div class="mf"><button class="btn btn-o" @click="mChqSts=false">Cancel</button><button class="btn btn-p" @click="saveChqSts" :disabled="saving">Confirm</button></div>
+  </div>
+</div>
+
+<!-- ENDORSE CHEQUE MODAL (third-party / received cheque passed on as payment) -->
+<div class="mo" v-if="mChqEnd" @click.self="mChqEnd=false">
+  <div class="md md-sm"><div class="mh"><h3>Endorse Cheque #{{eEnd.cheque?.chequeNo}}</h3><button class="xbtn" @click="mChqEnd=false">×</button></div>
+    <div class="mb">
+      <div v-if="mErr" class="al al-d">{{mErr}}</div>
+      <div class="al al-i" style="font-size:12px;margin-bottom:10px">
+        {{f(eEnd.cheque?.amount||0)}} from {{eEnd.cheque?.party}}<span v-if="eEnd.cheque?.thirdParty"> (drawn by {{eEnd.cheque.drawer}})</span>.
+        It leaves your hands as a payment and never goes through your bank. Books: Dr {{eEnd.toType==='supplier'?'Accounts Payable':(eEnd.expenseAccount||'expense')}}, Cr Cheques Receivable.
+      </div>
+      <div class="fg">
+        <div class="fl"><label>Pay to</label>
+          <select v-model="eEnd.toType" class="fc"><option value="supplier">A supplier</option><option value="expense">An expense (rent, transport, other payee)</option></select>
+        </div>
+        <template v-if="eEnd.toType==='supplier'">
+          <div class="fl"><label>Supplier *</label>
+            <select v-model="eEnd.supplierId" class="fc" @change="loadEndPOs"><option value="">— Select —</option><option v-for="s2 in supps" :key="s2._id" :value="s2._id">{{s2.name}} (owed {{f(s2.balance||0)}})</option></select>
+          </div>
+          <div class="fl"><label>Against purchase (optional)</label>
+            <select v-model="eEnd.purchaseId" class="fc"><option value="">— Supplier account only —</option><option v-for="po in endPOs" :key="po._id" :value="po._id" :disabled="po.balance+0.01<(eEnd.cheque?.amount||0)">{{po.purchaseNo}} — balance {{f(po.balance)}}</option></select>
+          </div>
+        </template>
+        <template v-else>
+          <div class="fl"><label>Expense account *</label>
+            <select v-model="eEnd.expenseAccount" class="fc"><option value="">— Select —</option><option v-for="a in ledgerAccs.filter(a=>a.type==='expense'&&a.active!==false)" :key="a._id" :value="a.name">{{a.name}}</option></select>
+          </div>
+          <div class="fl"><label>Payee</label><input v-model="eEnd.payee" class="fc" placeholder="Who you handed it to"/></div>
+        </template>
+        <div class="fr"><div class="fl"><label>Date</label><input v-model="eEnd.date" type="date" class="fc"/></div><div class="fl"><label>Note</label><input v-model="eEnd.note" class="fc"/></div></div>
+      </div>
+    </div>
+    <div class="mf"><button class="btn btn-o" @click="mChqEnd=false">Cancel</button><button class="btn btn-p" @click="saveEndorse" :disabled="saving||(eEnd.toType==='supplier'?!eEnd.supplierId:!eEnd.expenseAccount)">{{saving?'Saving…':'Endorse'}}</button></div>
   </div>
 </div>
 
@@ -2421,6 +2607,9 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
             <div class="fl" v-if="nInv.paymentMode==='cash'"><label>Cash Account</label><select v-model="nInv.cashAccount" class="fc"><option value="">— Select —</option><option v-for="a in cas" :key="a._id" :value="a._id">{{a.name}} ({{f(a.currentBalance)}})</option></select></div>
             <div class="fl" v-if="nInv.paymentMode==='bank'"><label>Bank Account</label><select v-model="nInv.bankAccount" class="fc"><option value="">— Select —</option><option v-for="a in baccs" :key="a._id" :value="a._id">{{a.name}}</option></select></div>
             <div class="fl" v-if="nInv.paymentMode==='cheque'"><label>Cheque No.</label><input v-model="nInv.chequeNo" class="fc"/></div>
+            <div class="fl" v-if="nInv.paymentMode==='cheque'"><label>Cheque / Due Date</label><input v-model="nInv.chequeDate" type="date" class="fc"/></div>
+            <div class="fl" v-if="nInv.paymentMode==='cheque'"><label>Drawn On Bank</label><input v-model="nInv.chequeBank" class="fc"/></div>
+            <div class="fl" v-if="nInv.paymentMode==='cheque'"><label>Drawer (if 3rd party)</label><input v-model="nInv.chequeDrawer" class="fc" placeholder="Blank = customer"/></div>
             <div class="fl"><label>Discount</label><input v-model="nInv.discount" @input="calcInv()" @blur="nInv.discount=+nInv.discount||0" type="number" step="0.01" class="fc" placeholder="0"/></div>
           </div>
           <div class="fl"><label>Notes</label><textarea v-model="nInv.notes" class="fc" rows="2"></textarea></div>
@@ -2561,6 +2750,11 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <div class="fr" style="margin-bottom:10px">
             <div class="fl"><label>Payment Made</label><input v-model="nPO.paid" type="number" step="0.01" class="fc" @input="calcPO" @blur="nPO.paid=+nPO.paid||0"/></div>
             <div class="fl"><label>Payment Mode</label><select v-model="nPO.paymentMode" class="fc"><option value="cash">Cash</option><option value="bank">Bank Transfer</option><option value="cheque">Cheque</option></select></div>
+          </div>
+          <div class="fr" style="margin-bottom:10px" v-if="+nPO.paid>0">
+            <div class="fl" v-if="nPO.paymentMode==='cash'"><label>Cash Account</label><select v-model="nPO.cashAccount" class="fc"><option value="">— Select —</option><option v-for="a in cas" :key="a._id" :value="a._id">{{a.name}} ({{f(a.currentBalance)}})</option></select></div>
+            <div class="fl" v-if="nPO.paymentMode==='bank'"><label>Bank Account *</label><select v-model="nPO.bankAccount" class="fc"><option value="">— Select —</option><option v-for="a in baccs" :key="a._id" :value="a._id">{{a.name}} ({{f(a.currentBalance)}})</option></select></div>
+            <div class="fl" v-if="nPO.paymentMode==='cheque'"><label>Cheque No. *</label><input v-model="nPO.chequeNo" class="fc"/></div>
           </div>
           <div class="fl" style="margin-bottom:10px"><label>Update Inventory?</label><select v-model="nPO.updateStock" class="fc"><option :value="true">Yes</option><option :value="false">No — Record Only</option></select></div>
           <div class="fl"><label>Notes</label><textarea v-model="nPO.notes" class="fc" rows="2"></textarea></div>
@@ -3824,114 +4018,6 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
   </div>
 </div>
 
-<!-- RECONCILIATION PAGE -->
-<template v-if="pg==='recon'">
-  <div class="topbar">
-    <button class="btn btn-o btn-sm" @click="pg='bank'" style="margin-right:6px">← Banking</button>
-    <h2>Bank Reconciliation<span v-if="reconAccount" class="mn cm" style="font-size:12px;font-weight:400;margin-left:8px">— {{baccs.find(a=>a._id===reconAccount)?.name||''}}</span></h2>
-    <div class="tba">
-      <select v-model="reconAccount" @change="loadReconLines();loadReconSummary()" class="fc" style="width:200px">
-        <option value="">Select account…</option>
-        <option v-for="a in baccs" :key="a._id" :value="a._id">{{a.name}}</option>
-      </select>
-      <button class="btn btn-p" @click="mReconImport=true" :disabled="!reconAccount">Import CSV</button>
-    </div>
-  </div>
-  <div class="content">
-    <!-- Summary bar -->
-    <div class="sg" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px" v-if="reconAccount">
-      <div class="sc g">
-        <div class="sl">Book Balance</div>
-        <div class="sv" :class="reconSummary.bookBalance>=0?'cg':'cr'">{{f(reconSummary.bookBalance||0)}}</div>
-        <div class="ss">From bank account</div>
-      </div>
-      <div class="sc b">
-        <div class="sl">Statement Balance</div>
-        <div class="sv cb2" v-if="reconSummary.statementBalance!=null">{{f(reconSummary.statementBalance)}}</div>
-        <div class="sv cm" v-else>No import yet</div>
-        <div class="ss">Last imported line</div>
-      </div>
-      <div class="sc" :class="Math.abs(reconDifference)<0.01?'g':'r'">
-        <div class="sl">Difference</div>
-        <div class="sv" :class="Math.abs(reconDifference)<0.01?'cg':'cr'">{{reconSummary.statementBalance!=null?f(reconDifference):'—'}}</div>
-        <div class="ss" :class="Math.abs(reconDifference)<0.01?'cg':''">{{Math.abs(reconDifference)<0.01?'Balanced!':'Confirm more matches'}}</div>
-      </div>
-    </div>
-
-    <div v-if="!reconAccount" class="card" style="text-align:center;padding:48px">
-      <div style="font-size:32px;margin-bottom:8px">✅</div>
-      <div style="color:var(--tx2)">Select a bank account to start reconciling</div>
-    </div>
-
-    <template v-if="reconAccount">
-      <!-- Tabs + status counts -->
-      <div style="display:flex;gap:6px;margin-bottom:12px;align-items:center">
-        <button class="btn btn-o btn-sm" :class="reconTab==='unreconciled'?'btn-p':''" @click="reconTab='unreconciled';loadReconLines()">
-          Unreconciled <span v-if="reconSummary.statusCounts?.unreconciled" class="nbadge" style="position:static;margin-left:4px">{{reconSummary.statusCounts.unreconciled}}</span>
-        </button>
-        <button class="btn btn-o btn-sm" :class="reconTab==='reconciled'?'btn-p':''" @click="reconTab='reconciled';loadReconLines()">Reconciled</button>
-        <button class="btn btn-o btn-sm" :class="reconTab==='ignored'?'btn-p':''" @click="reconTab='ignored';loadReconLines()">Ignored</button>
-        <button class="btn btn-o btn-sm" @click="loadReconLines()" style="margin-left:auto">↻ Refresh</button>
-      </div>
-
-      <div class="card">
-        <div class="tw">
-          <table>
-            <thead>
-              <tr>
-                <th style="width:90px">Date</th>
-                <th>Description</th>
-                <th style="width:120px;text-align:right">Amount</th>
-                <th v-if="reconTab==='unreconciled'" style="width:200px">Best Match</th>
-                <th v-if="reconTab==='reconciled'" style="width:200px">Matched To</th>
-                <th style="width:160px">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="reconLoading"><td colspan="5" class="emp">Loading…</td></tr>
-              <tr v-else-if="!reconLines.length"><td colspan="5" class="emp"><div class="eic">✅</div><div>No {{reconTab}} lines</div></td></tr>
-              <tr v-for="line in reconLines" :key="line._id">
-                <td class="mn cm">{{fd(line.date)}}</td>
-                <td>
-                  <div style="font-weight:500;color:var(--txt);font-size:13px">{{line.note||line.description}}</div>
-                  <div class="cm" style="font-size:10px" v-if="line.counterparty">{{line.counterparty}}</div>
-                  <div class="cm" style="font-size:10px" v-if="line.reference">Ref: {{line.reference}}</div>
-                </td>
-                <td class="mn fw" style="text-align:right" :class="line.direction==='credit'?'cg':'cr'">
-                  {{line.direction==='credit'?'+':'-'}}{{f(Math.abs(line.amount))}}
-                </td>
-                <!-- Unreconciled: show best suggestion inline -->
-                <td v-if="reconTab==='unreconciled'">
-                  <span v-if="line._bestSugg" class="badge" :class="line._bestSugg.band==='High'?'bpaid':line._bestSugg.band==='Medium'?'bpend':'bout'" style="font-size:10px">{{line._bestSugg.band}}</span>
-                  <span v-if="line._bestSugg" style="font-size:11px;color:var(--txt);margin-left:4px">{{line._bestSugg.label}}</span>
-                  <span v-if="!line._bestSugg" class="cm" style="font-size:11px">—</span>
-                </td>
-                <!-- Reconciled: show what it was matched to -->
-                <td v-if="reconTab==='reconciled'">
-                  <div v-for="m in (line.matches||[])" :key="m.label" style="font-size:11px;color:var(--txt)">
-                    <span class="badge bpaid" style="font-size:9px;margin-right:3px">{{m.kind}}</span>{{m.label}} {{f(m.amount)}}
-                  </div>
-                </td>
-                <!-- Actions -->
-                <td>
-                  <div class="fx g6" v-if="reconTab==='unreconciled'">
-                    <button class="btn btn-o btn-sm" @click="openMatch(line)" title="View suggestions & match">Match</button>
-                    <button class="btn btn-o btn-sm" @click="splitLine(line)" title="Split into invoice + extra">Split</button>
-                    <button class="btn btn-o btn-sm" @click="bookBankOnly(line)" title="Book as bank fee or interest">Fee</button>
-                    <button class="btn btn-sm" style="background:none;border:1px solid var(--brd);color:var(--tx3)" @click="ignoreLine(line)" title="Ignore this line">Ignore</button>
-                  </div>
-                  <div class="fx g6" v-else>
-                    <button class="btn btn-o btn-sm" @click="undoReconcile(line)">Undo</button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </template>
-  </div>
-</template>
 
 <!-- RECON: IMPORT CSV MODAL -->
 <div class="mo" v-if="mReconImport" @click.self="mReconImport=false">
@@ -3971,7 +4057,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
                   <td>{{row.note}}</td>
                   <td class="cm">{{row.counterparty||'—'}}</td>
                   <td class="mn fw" :class="row.direction==='credit'?'cg':'cr'">{{row.direction==='credit'?'+':'-'}}{{f(Math.abs(row.amount))}}</td>
-                  <td><span class="badge" :class="row.direction==='credit'?'bin':'bout'">{{row.direction}}</span></td>
+                  <td><span class="badge" :class="row.direction==='credit'?'bin':'bout'">{{row.direction==='credit'?'Money in':'Money out'}}</span></td>
                 </tr>
               </tbody>
             </table>
@@ -3996,7 +4082,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       <div>
         <h3>Match Statement Line</h3>
         <div v-if="reconActiveLine" style="font-size:11px;color:var(--tx2)">
-          {{fd(reconActiveLine.date)}} &nbsp;·&nbsp; <span :class="reconActiveLine.direction==='credit'?'cg':'cr'">{{reconActiveLine.direction==='credit'?'+':'-'}}{{f(Math.abs(reconActiveLine.amount))}}</span> &nbsp;·&nbsp; {{reconActiveLine.note||reconActiveLine.description}}
+          {{fd(reconActiveLine.date)}} &nbsp;·&nbsp; <span :class="reconActiveLine.direction==='credit'?'cg':'cr'">{{reconActiveLine.direction==='credit'?'+':'-'}}{{f(Math.abs(reconActiveLine.amount))}} <span style="font-size:10px;font-weight:400;color:var(--tx3)">{{reconActiveLine.direction==='credit'?'Money in · Dr Bank':'Money out · Cr Bank'}}</span></span> &nbsp;·&nbsp; {{reconActiveLine.note||reconActiveLine.description}}
         </div>
       </div>
       <button class="xbtn" @click="mReconMatch=false">×</button>
@@ -4052,7 +4138,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       <div>
         <h3>Split Statement Line</h3>
         <div v-if="reconActiveLine" style="font-size:11px;color:var(--tx2)">
-          {{fd(reconActiveLine.date)}} &nbsp;·&nbsp; <span :class="reconActiveLine.direction==='credit'?'cg':'cr'">{{reconActiveLine.direction==='credit'?'+':'-'}}{{f(Math.abs(reconActiveLine.amount))}}</span>
+          {{fd(reconActiveLine.date)}} &nbsp;·&nbsp; <span :class="reconActiveLine.direction==='credit'?'cg':'cr'">{{reconActiveLine.direction==='credit'?'+':'-'}}{{f(Math.abs(reconActiveLine.amount))}} <span style="font-size:10px;font-weight:400;color:var(--tx3)">{{reconActiveLine.direction==='credit'?'Money in · Dr Bank':'Money out · Cr Bank'}}</span></span>
         </div>
       </div>
       <button class="xbtn" @click="mReconSplit=false">×</button>
@@ -4128,7 +4214,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       <div>
         <h3>Book &amp; Reconcile</h3>
         <div v-if="reconActiveLine" style="font-size:11px;color:var(--tx2)">
-          {{fd(reconActiveLine.date)}} &nbsp;·&nbsp; <span :class="reconActiveLine.direction==='credit'?'cg':'cr'">{{reconActiveLine.direction==='credit'?'+':'-'}}{{f(Math.abs(reconActiveLine.amount))}}</span>
+          {{fd(reconActiveLine.date)}} &nbsp;·&nbsp; <span :class="reconActiveLine.direction==='credit'?'cg':'cr'">{{reconActiveLine.direction==='credit'?'+':'-'}}{{f(Math.abs(reconActiveLine.amount))}} <span style="font-size:10px;font-weight:400;color:var(--tx3)">{{reconActiveLine.direction==='credit'?'Money in · Dr Bank':'Money out · Cr Bank'}}</span></span>
         </div>
       </div>
       <button class="xbtn" @click="mReconBankOnly=false">×</button>
@@ -4140,8 +4226,8 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
         <div class="fl">
           <label>Category</label>
           <select v-model="bankOnlyKind" class="fc">
-            <option value="expense">Bank charge / fee (money out)</option>
-            <option value="income">Interest income (money in)</option>
+            <option v-if="reconActiveLine?.direction==='debit'" value="expense">Bank charge / fee (money out · Dr Expense, Cr Bank)</option>
+            <option v-if="reconActiveLine?.direction==='credit'" value="income">Interest / other income (money in · Dr Bank, Cr Income)</option>
           </select>
         </div>
         <div class="fl">
