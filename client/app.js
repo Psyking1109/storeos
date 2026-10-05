@@ -683,7 +683,7 @@ const poFinFilt=ref('');
 const psrch=ref('');const ifilt=ref('');const pofilt=ref('');const docTypeFilt=ref('invoice');
 const exFrom=ref(new Date(d.getFullYear(),d.getMonth(),1).toISOString().slice(0,10));const exTo=ref(today);
 const suppHist=ref({});
-const stmtAcc=ref(null);const stmtFr=ref('');const stmtTo=ref('');const stmtRows=ref([]);
+const stmtAcc=ref(null);const stmtFr=ref('');const stmtTo=ref('');const stmtRows=ref([]);const stmtInfo=ref({});
 const mProd=ref(false);const mStk=ref(false);const mCust=ref(false);const mSupp=ref(false);const mSuppH=ref(false);
 const mCA=ref(false);const mXfer=ref(false);const mExp=ref(false);const mPay=ref(false);
 const mTxRate=ref(false);const mInvType=ref(false);const mLoc=ref(false);const mUser=ref(false);
@@ -803,7 +803,7 @@ function toggleRptRow(idx){
   expandedRptRows.value=s;
 }
 async function loadRpt(){if(!rptDate.value)return;expandedRptRows.value=new Set();try{rpt.value=await api('GET','/ledger/daily-cash-report?date='+rptDate.value);}catch(e){alert(e.message);}}
-async function loadStmt(){try{const q='from='+stmtFr.value+'&to='+stmtTo.value;stmtRows.value=await api('GET','/banking/accounts/'+stmtAcc.value._id+'/statement?'+q);}catch(e){alert(e.message);}}
+async function loadStmt(){try{const q='from='+stmtFr.value+'&to='+stmtTo.value;const r=await api('GET','/banking/accounts/'+stmtAcc.value._id+'/statement?'+q);stmtRows.value=r.rows||[];stmtInfo.value=r;}catch(e){alert(e.message);}}
 watch(pg,async p=>{
   if(p==='dash')loadDash();
   if(p==='stk'){loadProds();loadCats();loadSavedCats();loadTxRates();loadLocs();}
@@ -1089,7 +1089,7 @@ async function saveBAcc(){if(!eBAcc.value.name){mErr.value='Name required';retur
 function openBTx(){eBTx.value={type:'deposit',account:'',toAccount:'',amount:0,date:today,description:'',chequeNo:'',reference:'',cleared:true};mErr.value='';mBTx.value=true;}
 async function saveBTx(){if(!eBTx.value.account||!eBTx.value.amount){mErr.value='Account and amount required';return;}saving.value=true;mErr.value='';try{await api('POST','/banking/transactions',eBTx.value);mBTx.value=false;loadBaccs();loadBTxs();}catch(e){mErr.value=e.message;}saving.value=false;}
 async function delBTx(id){if(!confirm('Delete? Balance will be reversed.'))return;try{await api('DELETE','/banking/transactions/'+id);loadBaccs();loadBTxs();}catch(e){alert(e.message);}}
-async function viewStmt(a){stmtAcc.value=a;stmtRows.value=[];mStmt.value=true;await loadStmt();}
+async function viewStmt(a){stmtAcc.value=a;stmtRows.value=[];stmtInfo.value={};mStmt.value=true;await loadStmt();}
 function openChq(c){eChq.value=c?{...c,date:c.date?new Date(c.date).toISOString().slice(0,10):today,dueDate:c.dueDate?new Date(c.dueDate).toISOString().slice(0,10):''}:{chequeNo:'',direction:'received',amount:0,party:'',partyId:'',drawer:'',bank:'',branch:'',date:today,dueDate:'',reference:'',contraAccount:''};mErr.value='';loadCusts();loadSupps();if(!ledgerAccs.value.length)loadLedgerAccs();mChq.value=true;}
 function pickChqParty(){const list=eChq.value.direction==='received'?custs.value:supps.value;const p=list.find(x=>x._id===eChq.value.partyId);if(p)eChq.value.party=p.name;}
 // Endorse a received cheque (third-party cheque passed on as payment)
@@ -1513,7 +1513,7 @@ pg,saving,mErr,dash,prods,invs,pos,custs,supps,cats,txRates,allTxRates,taxRpt,us
 cas,xfers,exps,exSumm,expCats,baccs,btxs,btab,btf,chqs,chqf,
 ledDays,trial,trialGrp,ledV,ledFr,ledTo,ledAccList,ledAcc,accLedRows,
 txFr,txTo,txYear,txYears,curYear,curMonth,txMonthly,rpt,rptDate,rptTab,
-psrch,ifilt,pofilt,docTypeFilt,exFrom,exTo,suppHist,stmtAcc,stmtFr,stmtTo,stmtRows,
+psrch,ifilt,pofilt,docTypeFilt,exFrom,exTo,suppHist,stmtAcc,stmtFr,stmtTo,stmtRows,stmtInfo,
 payDoc,payAmt,payMode,payCashAcc,payBankAcc,payChqNo,payDate,
 iSrch,iSrchRes,iSrchLoading,poSrch,poSrchRes,invNoPreview,nInv,nPO,
 mProd,mStk,mCust,mSupp,mSuppH,mCA,mXfer,mExp,mPay,mTxRate,mInvType,mLoc,mUser,mBAcc,mBTx,mStmt,mChq,mChqSts,mInv,mPO,
