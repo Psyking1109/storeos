@@ -321,7 +321,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <div style="font-size:11px;color:var(--tx3)">{{cat.items.length}} items · Total value: {{f(cat.items.reduce((s,p)=>s+p.stock*p.costPrice,0))}}</div>
         </div>
         <div class="card" style="margin-bottom:8px"><div class="tw"><table>
-          <thead><tr><th>Name / SKU</th><th>Unit</th><th>Loose</th><th style="text-align:right">Cost</th><th style="text-align:right">Price</th><th>Taxes</th><th>Stock</th><th style="text-align:right">Available</th><th style="text-align:right">Proforma</th><th style="text-align:right">Invoiced–Undelivered</th><th style="text-align:right">Value</th><th></th></tr></thead>
+          <thead><tr><th>Name / SKU</th><th>Unit</th><th>Loose</th><th style="text-align:right">Cost</th><th style="text-align:right">Price</th><th>Taxes</th><th>Stock</th><th style="text-align:right">Available</th><th style="text-align:right">Proforma</th><th style="text-align:right">On order</th><th style="text-align:right">Invoiced–Undelivered</th><th style="text-align:right">Value</th><th></th></tr></thead>
           <tbody>
             <tr v-for="p in cat.items" :key="p._id">
               <td><div style="font-weight:600;color:var(--txt)">{{p.name}}</div><div class="mn cm" style="font-size:10px">{{p.sku||'—'}}</div></td>
@@ -337,7 +337,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
               <span v-if="p.allowLoose&&p.looseStock>0" style="font-size:10px;color:var(--tx2);display:block;margin-top:2px">+{{p.looseStock}} {{p.looseUnit}} loose</span>
             </td>
               <td class="mn" style="text-align:right" :style="{color:availForSale(p)<=0?'var(--red)':'var(--grn)'}">{{availForSale(p)}}</td>
-              <td class="mn" style="text-align:right;cursor:pointer;text-decoration:underline;text-underline-offset:2px" @click="openCommitDrill(p,'proforma')">{{proformaQty(p)}}</td>
+              <td class="mn" style="text-align:right;cursor:pointer;text-decoration:underline;text-underline-offset:2px" @click="openCommitDrill(p,'proforma')">{{proformaQty(p)}}</td><td class="mn" style="text-align:right;cursor:pointer;text-decoration:underline;text-underline-offset:2px;color:var(--blu)" @click="openCommitDrill(p,'onorder')">{{onOrderQty(p)}}</td>
               <td class="mn" style="text-align:right;cursor:pointer;text-decoration:underline;text-underline-offset:2px;color:var(--org)" @click="openCommitDrill(p,'invoiced')">{{undeliveredQty(p)}}</td>
               <td class="mn" style="text-align:right">{{f(p.stock*p.costPrice)}}</td>
               <td><div class="fx g6"><button class="btn btn-o btn-sm" @click="openProd(p)">Edit</button><button class="btn btn-o btn-sm" @click="openStk(p)">Stock</button><button class="btn btn-b btn-sm" @click="viewStockMovement(p._id)">📊</button><button class="btn btn-d btn-sm" @click="delProd(p._id)">Del</button></div></td>
@@ -350,7 +350,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
     <!-- Flat view when searching or filtering -->
     <template v-else>
       <div class="card"><div class="tw"><table>
-        <thead><tr><th>Name / SKU</th><th>Category</th><th>Unit</th><th style="text-align:right">Cost</th><th style="text-align:right">Price</th><th>Stock</th><th style="text-align:right">Available</th><th style="text-align:right">Proforma</th><th style="text-align:right">Invoiced–Undelivered</th><th style="text-align:right">Value</th><th></th></tr></thead>
+        <thead><tr><th>Name / SKU</th><th>Category</th><th>Unit</th><th style="text-align:right">Cost</th><th style="text-align:right">Price</th><th>Stock</th><th style="text-align:right">Available</th><th style="text-align:right">Proforma</th><th style="text-align:right">On order</th><th style="text-align:right">Invoiced–Undelivered</th><th style="text-align:right">Value</th><th></th></tr></thead>
         <tbody>
           <tr v-for="p in prods" :key="p._id">
             <td><div style="font-weight:600;color:var(--txt)">{{p.name}}</div><div class="mn cm" style="font-size:10px">{{p.sku||'—'}}</div></td>
@@ -362,12 +362,12 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
               <span v-if="p.allowLoose&&p.looseStock>0" style="font-size:10px;color:var(--tx2);display:block;margin-top:2px">+{{p.looseStock}} {{p.looseUnit}} loose</span>
             </td>
             <td class="mn" style="text-align:right" :style="{color:availForSale(p)<=0?'var(--red)':'var(--grn)'}">{{availForSale(p)}}</td>
-            <td class="mn" style="text-align:right;cursor:pointer;text-decoration:underline;text-underline-offset:2px" @click="openCommitDrill(p,'proforma')">{{proformaQty(p)}}</td>
+            <td class="mn" style="text-align:right;cursor:pointer;text-decoration:underline;text-underline-offset:2px" @click="openCommitDrill(p,'proforma')">{{proformaQty(p)}}</td><td class="mn" style="text-align:right;cursor:pointer;text-decoration:underline;text-underline-offset:2px;color:var(--blu)" @click="openCommitDrill(p,'onorder')">{{onOrderQty(p)}}</td>
             <td class="mn" style="text-align:right;cursor:pointer;text-decoration:underline;text-underline-offset:2px;color:var(--org)" @click="openCommitDrill(p,'invoiced')">{{undeliveredQty(p)}}</td>
             <td class="mn" style="text-align:right">{{f(p.stock*p.costPrice)}}</td>
             <td><div class="fx g6"><button class="btn btn-o btn-sm" @click="openProd(p)">Edit</button><button class="btn btn-o btn-sm" @click="openStk(p)">Stock</button><button class="btn btn-b btn-sm" @click="viewStockMovement(p._id)">📊</button><button class="btn btn-d btn-sm" @click="delProd(p._id)">Del</button></div></td>
           </tr>
-          <tr v-if="!prods.length"><td colspan="11" class="emp"><div class="eic">📦</div><div>No products found</div></td></tr>
+          <tr v-if="!prods.length"><td colspan="12" class="emp"><div class="eic">📦</div><div>No products found</div></td></tr>
         </tbody>
       </table></div></div>
     </template>
@@ -419,6 +419,27 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
             <td class="mn" style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right">{{fd(row.date)}}</td>
           </tr>
           <tr v-if="!commitDrillRows.length"><td colspan="5" class="emp"><div>No open proformas for this product</div></td></tr>
+        </tbody>
+      </table></div>
+      <div v-else-if="commitDrillKind==='onorder'" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+        <thead><tr style="background:rgba(255,255,255,.04)">
+          <th style="padding:7px 10px;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd);text-align:left">PO No.</th>
+          <th style="padding:7px 10px;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd);text-align:left">Supplier</th>
+          <th style="padding:7px 10px;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd);text-align:right">Ordered</th>
+          <th style="padding:7px 10px;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd);text-align:right">Received</th>
+          <th style="padding:7px 10px;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd);text-align:right">Still to come</th>
+          <th style="padding:7px 10px;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd);text-align:right">Date</th>
+        </tr></thead>
+        <tbody>
+          <tr v-for="row in commitDrillRows" :key="row.purchaseId" style="cursor:pointer" @click="openCommitDrillDoc(row)">
+            <td class="mn ca" style="padding:8px 10px;border-bottom:1px solid var(--brd);text-decoration:underline">{{row.purchaseNo}}</td>
+            <td style="padding:8px 10px;border-bottom:1px solid var(--brd)">{{row.supplierName||'—'}}</td>
+            <td class="mn" style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right">{{row.ordered}}</td>
+            <td class="mn" style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right;color:var(--grn)">{{row.received}}</td>
+            <td class="mn" style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right;color:var(--blu)">{{row.outstanding}}</td>
+            <td class="mn" style="padding:8px 10px;border-bottom:1px solid var(--brd);text-align:right">{{fd(row.date)}}</td>
+          </tr>
+          <tr v-if="!commitDrillRows.length"><td colspan="6" class="emp"><div>Nothing on order for this product</div></td></tr>
         </tbody>
       </table></div>
       <div v-else style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
@@ -2864,167 +2885,34 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
         <div style="display:flex;align-items:center;gap:8px">
           <h3>{{poDet.purchaseNo}}</h3>
           <span class="badge" :class="poDet.purchaseType==='import'?'bimp':'bloc'" style="font-size:10px">{{poDet.purchaseType}}</span>
-          <span class="badge" :class="poDet.isFinalized?'bpaid':'bpend'" style="font-size:10px">{{poDet.isFinalized?'Finalized':'Open — Editable'}}</span>
+          <span class="badge" :class="poDet.isFinalized?'bpaid':'bpend'" style="font-size:10px">{{poDet.isFinalized?'Items locked':'Open'}}</span>
         </div>
         <div style="font-size:12px;color:var(--tx2);margin-top:3px">{{poDet.supplierName||'No Supplier'}} &mdash; {{fd(poDet.date)}}</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
-        <button v-if="!poDet.isFinalized" class="btn btn-p btn-sm" @click="finalizePO">✓ Mark as Final</button>
+        <button v-if="!poDet.isFinalized" class="btn btn-o btn-sm" @click="finalizePO">Lock items</button>
         <button class="xbtn" @click="mPODetail=false">×</button>
       </div>
     </div>
     <div class="mb">
-      <!-- Summary strip -->
-      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px">
-        <div class="tb"><div class="sl">Items</div><div class="sv sm">{{f(poDet.subtotal||0)}}</div></div>
-        <div class="tb"><div class="sl">Item Tax</div><div class="sv sm co">{{f(poDet.taxAmount||0)}}</div></div>
-        <div class="tb"><div class="sl">Landing (net)</div><div class="sv sm cb2">{{f(poDet.landingCostTotal||0)}}</div></div>
-        <div class="tb"><div class="sl">Landing Tax</div><div class="sv sm cp">{{f(poDet.landingTaxTotal||0)}}</div></div>
-        <div class="tb" style="border-color:rgba(240,165,0,.4);background:rgba(240,165,0,.06)"><div class="sl">Grand Total</div><div class="sv sm ca">{{f(poDet.total||0)}}</div></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-        <!-- LEFT col: Items + Landing + Goods -->
-        <div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
-            <div style="font-size:12px;font-weight:600;color:var(--txt)">Items</div>
-            <div v-if="!poDet.isFinalized" style="display:flex;gap:6px">
-              <button class="btn btn-g btn-sm" @click="savePoDetItems">💾 Save Changes</button>
-            </div>
-          </div>
-          <div style="overflow-x:auto;margin-bottom:8px">
-            <table style="width:100%;border-collapse:collapse">
-              <thead><tr style="background:rgba(255,255,255,.03)">
-                <th style="padding:6px 9px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Product</th>
-                <th style="padding:6px 9px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Qty</th>
-                <th style="padding:6px 9px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Cost (LKR)</th>
-                <th style="padding:6px 9px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--org);font-family:var(--fm);border-bottom:1px solid var(--brd)">Tax</th>
-                <th style="padding:6px 9px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Total</th>
-                <th v-if="!poDet.isFinalized" style="padding:6px 9px;border-bottom:1px solid var(--brd);width:24px"></th>
-              </tr></thead>
-              <tbody>
-                <tr v-for="(item,idx) in (poDet.items||[])" :key="idx">
-                  <td style="padding:5px 9px;border-bottom:1px solid var(--brd)">
-                    <input v-if="!poDet.isFinalized" v-model="item.productName" class="fc" style="padding:3px 6px;font-size:12px" @input="calcPodet"/>
-                    <span v-else style="color:var(--txt);font-weight:500">{{item.productName}}</span>
-                  </td>
-                  <td style="padding:5px 9px;border-bottom:1px solid var(--brd);text-align:right">
-                    <input v-if="!poDet.isFinalized" v-model="item.qty" type="number" min="0" step="0.01" class="fc" style="padding:3px 6px;width:70px;text-align:right;font-family:var(--fm)" @input="calcPodet()" @blur="item.qty=+item.qty||0"/>
-                    <span v-else style="font-family:var(--fm)">{{item.qty}} {{item.unit}}</span>
-                  </td>
-                  <td style="padding:5px 9px;border-bottom:1px solid var(--brd);text-align:right">
-                    <input v-if="!poDet.isFinalized" v-model="item.unitCost" type="number" min="0" step="0.01" class="fc" style="padding:3px 6px;width:100px;text-align:right;font-family:var(--fm)" @input="calcPodet()" @blur="item.unitCost=+item.unitCost||0"/>
-                    <span v-else style="font-family:var(--fm)">{{f(item.unitCost)}}</span>
-                  </td>
-                  <td style="padding:5px 9px;border-bottom:1px solid var(--brd);text-align:right;font-family:var(--fm);color:var(--org)">{{f(item.taxAmount||0)}}</td>
-                  <td style="padding:5px 9px;border-bottom:1px solid var(--brd);text-align:right;font-family:var(--fm);font-weight:700">{{f(item.lineTotal)}}</td>
-                  <td v-if="!poDet.isFinalized" style="padding:5px 9px;border-bottom:1px solid var(--brd);text-align:center">
-                    <button class="btn btn-d btn-sm" @click="poDetRemoveItem(idx)" style="padding:2px 7px">×</button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <!-- Add item row (open purchases only) -->
-          <div v-if="!poDet.isFinalized" style="margin-bottom:12px">
-            <div style="display:flex;gap:6px;margin-bottom:5px">
-              <input v-model="poDetSrch" class="fc" style="flex:1" placeholder="Search product to add..." @input="poDetSrchProds"/>
-              <button class="btn btn-b btn-sm" @click="poDetAddManualItem">+ Manual Line</button>
-            </div>
-            <div v-if="poDetSrchRes.length" style="background:var(--sur2);border:1px solid var(--brd2);border-radius:var(--r);overflow:hidden;margin-bottom:4px">
-              <div v-for="p in poDetSrchRes" :key="p._id" @click="poDetAddItem(p)" style="padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--brd);font-size:12px;color:var(--txt)" class="hover-row">
-                <strong>{{p.name}}</strong> <span style="color:var(--tx3)">{{p.sku}}</span> <span style="float:right;font-family:var(--fm)">{{f(p.costPrice)}}</span>
-              </div>
-            </div>
-          </div>
-          <!-- Landing costs with taxes -->
-          <div style="font-size:12px;font-weight:600;color:var(--txt);margin-bottom:7px">Landing Costs</div>
-          <div style="overflow-x:auto;margin-bottom:8px">
-            <table style="width:100%;border-collapse:collapse">
-              <thead><tr style="background:rgba(255,255,255,.03)">
-                <th style="padding:6px 9px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Description</th>
-                <th style="padding:6px 9px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Net Amount</th>
-                <th style="padding:6px 9px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Tax</th>
-                <th style="padding:6px 9px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--org);font-family:var(--fm);border-bottom:1px solid var(--brd)">Tax Amt</th>
-                <th style="padding:6px 9px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Total</th>
-                <th v-if="!poDet.isFinalized" style="padding:6px 9px;border-bottom:1px solid var(--brd);width:24px"></th>
-              </tr></thead>
-              <tbody>
-                <tr v-for="(lc,li) in (poDet.landingCosts||[])" :key="li">
-                  <td style="padding:5px 9px;border-bottom:1px solid var(--brd)">
-                    <input v-if="!poDet.isFinalized" v-model="lc.description" class="fc" style="padding:3px 6px;font-size:12px"/>
-                    <span v-else style="color:var(--txt)">{{lc.description}}</span>
-                  </td>
-                  <td style="padding:5px 9px;border-bottom:1px solid var(--brd);text-align:right">
-                    <input v-if="!poDet.isFinalized" v-model="lc.amount" type="number" min="0" step="0.01" class="fc" style="padding:3px 6px;width:110px;text-align:right;font-family:var(--fm)" @input="calcPodet()" @blur="lc.amount=+lc.amount||0"/>
-                    <span v-else style="font-family:var(--fm)">{{f(lc.amount)}}</span>
-                  </td>
-                  <td style="padding:5px 9px;border-bottom:1px solid var(--brd)">
-                    <div style="display:flex;flex-wrap:wrap;gap:3px;align-items:center">
-                      <span v-for="(tl,ti) in (lc.taxLines||[])" :key="ti" class="txbadge" style="font-size:10px;cursor:default">
-                        {{tl.taxCode}} {{tl.rate}}%
-                        <span v-if="!poDet.isFinalized" @click="lc.taxLines.splice(ti,1);calcPodet()" style="cursor:pointer;margin-left:2px;color:var(--red)">×</span>
-                      </span>
-                      <select v-if="!poDet.isFinalized" @change="e=>{addTaxToLC(lc,e.target.value);calcPodet();e.target.value=''}" class="fc" style="width:80px;padding:2px 4px;font-size:11px">
-                        <option value="">+Tax</option>
-                        <option v-for="t in txRates" :key="t.code" :value="t.code">{{t.code}} {{t.rate}}%</option>
-                      </select>
-                    </div>
-                  </td>
-                  <td style="padding:5px 9px;border-bottom:1px solid var(--brd);text-align:right;font-family:var(--fm);color:var(--org)">{{f(lc.taxAmount||0)}}</td>
-                  <td style="padding:5px 9px;border-bottom:1px solid var(--brd);text-align:right;font-family:var(--fm);font-weight:700">{{f(lc.totalAmount||lc.amount)}}</td>
-                  <td v-if="!poDet.isFinalized" style="padding:5px 9px;border-bottom:1px solid var(--brd);text-align:center">
-                    <button class="btn btn-d btn-sm" @click="poDetRemoveLC(li)" style="padding:2px 7px">×</button>
-                  </td>
-                </tr>
-                <tr v-if="!(poDet.landingCosts||[]).length">
-                  <td colspan="6" style="padding:10px;text-align:center;color:var(--tx3);font-size:12px">No landing costs yet.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <button v-if="!poDet.isFinalized" class="btn btn-b btn-sm" @click="poDetAddLC" style="margin-bottom:12px">+ Add Landing Cost</button>
-          <!-- Goods received -->
-          <div @click="toggleGoodsReceived" style="cursor:pointer;border:1px solid var(--brd2);border-radius:var(--r);padding:10px 12px;display:flex;align-items:center;gap:10px;transition:all .15s"
-               :style="poDet.goodsReceived?'border-color:rgba(39,192,122,.5);background:rgba(39,192,122,.06);':''">
-            <span style="font-size:20px">{{poDet.goodsReceived?'📦✓':'📦?'}}</span>
-            <div><div style="font-weight:600;font-size:13px" :class="poDet.goodsReceived?'cg':'cm'">{{poDet.goodsReceived?'Goods Received':'Goods Not Yet Received'}}</div>
-            <div style="font-size:11px;color:var(--tx3)">{{poDet.goodsReceived?'Received: '+fd(poDet.goodsReceivedDate):'Click to mark as received'}}</div></div>
-          </div>
+      <!-- Progress -->
+      <div style="display:flex;gap:10px;margin-bottom:12px">
+        <div style="flex:1;border:1px solid var(--brd2);border-radius:var(--r);padding:10px 12px;background:var(--sur2)"><div class="sl">Ordered</div><div class="sv sm">{{poOrderedQty}}</div><div class="ss">Total {{f(poDet.total||0)}}</div></div>
+        <div style="flex:1;border:1px solid var(--brd2);border-radius:var(--r);padding:10px 12px;background:var(--sur2)"><div class="sl">Received</div>
+          <div v-if="poDet.receiptMode==='staged'" class="sv sm" :class="poReceivedQty>=poOrderedQty?'cg':''">{{poReceivedQty}} of {{poOrderedQty}}</div>
+          <div v-else class="sv sm cm">On creation</div>
+          <div class="ss" v-if="poDet.receiptMode==='staged'">{{poReceivedQty>=poOrderedQty?'All arrived':(poOrderedQty-poReceivedQty)+' still to come'}}</div>
         </div>
-        <!-- RIGHT col: Payment history + add payment -->
-        <div>
-          <div style="font-size:12px;font-weight:600;color:var(--txt);margin-bottom:7px">Payment History</div>
-          <div style="overflow-x:auto;margin-bottom:10px">
-            <table v-if="(poDet.paymentStages||[]).length" style="width:100%;border-collapse:collapse">
-              <thead><tr style="background:rgba(255,255,255,.03)">
-                <th style="padding:6px 9px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Date</th>
-                <th style="padding:6px 9px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Description</th>
-                <th style="padding:6px 9px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Mode/Ref</th>
-                <th style="padding:6px 9px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--grn);font-family:var(--fm);border-bottom:1px solid var(--brd)">Amount</th>
-                <th style="padding:6px 9px;border-bottom:1px solid var(--brd);width:30px"></th>
-              </tr></thead>
-              <tbody>
-                <tr v-for="stage in (poDet.paymentStages||[])" :key="stage._id">
-                  <td style="padding:7px 9px;border-bottom:1px solid var(--brd);font-family:var(--fm);font-size:11px;color:var(--tx3);white-space:nowrap">{{fd(stage.date)}}</td>
-                  <td style="padding:7px 9px;border-bottom:1px solid var(--brd);color:var(--txt);font-size:12px">{{stage.description||'Payment'}}</td>
-                  <td style="padding:7px 9px;border-bottom:1px solid var(--brd);font-size:11px">
-                    <span class="badge bpend" style="font-size:9px">{{stage.paymentMode}}</span>
-                    <span v-if="stage.reference" style="color:var(--tx3);font-family:var(--fm);font-size:10px;margin-left:4px">#{{stage.reference}}</span>
-                  </td>
-                  <td style="padding:7px 9px;border-bottom:1px solid var(--brd);text-align:right;font-family:var(--fm);font-weight:700;color:var(--grn)">{{f(stage.amount)}}</td>
-                  <td style="padding:7px 9px;border-bottom:1px solid var(--brd);text-align:center"><button class="btn btn-d btn-sm" @click="delPayStage(stage._id)" style="padding:2px 7px">×</button></td>
-                </tr>
-              </tbody>
-              <tfoot><tr style="background:rgba(255,255,255,.04)">
-                <td colspan="3" style="padding:8px 9px;font-family:var(--fm);font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--tx2);font-weight:700">Total Paid</td>
-                <td style="padding:8px 9px;text-align:right;font-family:var(--fm);font-weight:700;font-size:15px;color:var(--grn)">{{f((poDet.paymentStages||[]).reduce((s,p)=>s+p.amount,0))}}</td>
-                <td></td>
-              </tr></tfoot>
-            </table>
-            <div v-else style="color:var(--tx3);font-size:12px;padding:8px;border:1px dashed var(--brd2);border-radius:var(--r);margin-bottom:8px">No payments yet.</div>
-          </div>
-          <!-- Add payment -->
-          <div v-if="(poDet.balance||0)>0.01" style="background:var(--sur2);border:1px solid var(--brd2);border-radius:var(--r);padding:12px">
+        <div style="flex:1;border:1px solid var(--brd2);border-radius:var(--r);padding:10px 12px;background:var(--sur2)"><div class="sl">Paid</div><div class="sv sm" :class="(poDet.balance||0)<=0.01?'cg':''">{{poPaidPct}}%</div><div class="ss">{{f(poDet.paid||0)}} of {{f(poDet.total||0)}}</div></div>
+      </div>
+      <!-- Actions -->
+      <div style="display:flex;gap:10px;margin-bottom:12px">
+        <button class="btn btn-p" style="flex:1;padding:12px;font-size:14px;font-weight:600" @click="poPayOpen=!poPayOpen" :disabled="(poDet.balance||0)<=0.01">+ Payment</button>
+        <button v-if="poDet.receiptMode==='staged'" class="btn btn-g" style="flex:1;padding:12px;font-size:14px;font-weight:600" @click="openReceive" :disabled="poReceivedQty>=poOrderedQty">+ Goods received</button>
+        <button class="btn btn-b" style="flex:1;padding:12px;font-size:14px;font-weight:600" @click="openExtraCost" :disabled="poDet.isFinalized">+ Extra cost</button>
+      </div>
+      <div v-if="(poDet.balance||0)<=0.01" class="al al-s" style="margin-bottom:12px">✓ Fully paid</div>
+          <div v-if="poPayOpen" style="margin-bottom:12px;background:var(--sur2);border:1px solid var(--brd2);border-radius:var(--r);padding:12px">
             <div style="font-size:12px;font-weight:600;color:var(--txt);margin-bottom:8px">+ Add Payment</div>
             <div class="fg">
               <div class="fr" style="grid-template-columns:1fr 1fr">
@@ -3057,18 +2945,120 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
               <button class="btn btn-p" @click="savePayStage" :disabled="saving||!newStage.amount">{{saving?'Saving...':'+Add Payment'}}</button>
             </div>
           </div>
-          <div v-else class="al al-s" style="margin-top:4px">✓ Fully paid</div>
-          <!-- Notes -->
-          <div class="fl" style="margin-top:12px"><label>Notes</label>
-            <textarea v-model="poDet.notes" class="fc" rows="2" :disabled="poDet.isFinalized" @blur="savePONotes"></textarea>
-          </div>
+      <!-- Timeline -->
+      <div style="font-size:12px;font-weight:600;color:var(--txt);margin-bottom:7px">What happened</div>
+      <div style="border:1px solid var(--brd2);border-radius:var(--r);margin-bottom:14px">
+        <div v-for="ev in poTimeline" :key="ev.key" style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--brd)">
+          <span class="mn cm" style="font-size:11px;width:84px;flex-shrink:0">{{fd(ev.date)}}</span>
+          <span style="font-size:15px;width:20px">{{ev.icon}}</span>
+          <div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--txt)">{{ev.text}}</div><div v-if="ev.sub" style="font-size:11px;color:var(--tx3)">{{ev.sub}}</div></div>
+          <button v-if="ev.undo" class="btn btn-o btn-sm" @click="ev.undo()">{{ev.undoLabel}}</button>
         </div>
+        <div v-if="!poTimeline.length" style="padding:12px;color:var(--tx3);font-size:12px">Nothing yet. Use the buttons above as things happen.</div>
+      </div>
+      <!-- Older purchases only: stock was added when created; this is just a label -->
+      <div v-if="poDet.receiptMode!=='staged'" @click="toggleGoodsReceived" style="cursor:pointer;border:1px solid var(--brd2);border-radius:var(--r);padding:8px 12px;margin-bottom:14px;font-size:12px" :class="poDet.goodsReceived?'cg':'cm'">
+        {{poDet.goodsReceived?'📦 Goods received '+fd(poDet.goodsReceivedDate):'📦 Mark goods as received'}} <span class="cm">(older purchase: stock was added when it was created)</span>
+      </div>
+      <!-- Items -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
+            <div style="font-size:12px;font-weight:600;color:var(--txt)">Items</div>
+            <div v-if="!poDet.isFinalized" style="display:flex;gap:6px">
+              <button class="btn btn-g btn-sm" @click="savePoDetItems">💾 Save Changes</button>
+            </div>
+          </div>
+          <div style="overflow-x:auto;margin-bottom:8px">
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr style="background:rgba(255,255,255,.03)">
+                <th style="padding:6px 9px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Product</th>
+                <th style="padding:6px 9px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Qty</th>
+                <th v-if="poDet.receiptMode==='staged'" style="padding:6px 9px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Received</th>
+                <th style="padding:6px 9px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Cost (LKR)</th>
+                <th style="padding:6px 9px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--org);font-family:var(--fm);border-bottom:1px solid var(--brd)">Tax</th>
+                <th style="padding:6px 9px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx3);font-family:var(--fm);border-bottom:1px solid var(--brd)">Total</th>
+                <th v-if="!poDet.isFinalized" style="padding:6px 9px;border-bottom:1px solid var(--brd);width:24px"></th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="(item,idx) in (poDet.items||[])" :key="idx">
+                  <td style="padding:5px 9px;border-bottom:1px solid var(--brd)">
+                    <input v-if="!poDet.isFinalized" v-model="item.productName" class="fc" style="padding:3px 6px;font-size:12px" @input="calcPodet"/>
+                    <span v-else style="color:var(--txt);font-weight:500">{{item.productName}}</span>
+                  </td>
+                  <td style="padding:5px 9px;border-bottom:1px solid var(--brd);text-align:right">
+                    <input v-if="!poDet.isFinalized" v-model="item.qty" type="number" min="0" step="0.01" class="fc" style="padding:3px 6px;width:70px;text-align:right;font-family:var(--fm)" @input="calcPodet()" @blur="item.qty=+item.qty||0"/>
+                    <span v-else style="font-family:var(--fm)">{{item.qty}} {{item.unit}}</span>
+                  </td>
+                  <td v-if="poDet.receiptMode==='staged'" style="padding:5px 9px;border-bottom:1px solid var(--brd);text-align:right;font-family:var(--fm)" :class="(item.receivedQty||0)>=item.qty?'cg':'cm'">{{item.receivedQty||0}}</td>
+                  <td style="padding:5px 9px;border-bottom:1px solid var(--brd);text-align:right">
+                    <input v-if="!poDet.isFinalized" v-model="item.unitCost" type="number" min="0" step="0.01" class="fc" style="padding:3px 6px;width:100px;text-align:right;font-family:var(--fm)" @input="calcPodet()" @blur="item.unitCost=+item.unitCost||0"/>
+                    <span v-else style="font-family:var(--fm)">{{f(item.unitCost)}}</span>
+                  </td>
+                  <td style="padding:5px 9px;border-bottom:1px solid var(--brd);text-align:right;font-family:var(--fm);color:var(--org)">{{f(item.taxAmount||0)}}</td>
+                  <td style="padding:5px 9px;border-bottom:1px solid var(--brd);text-align:right;font-family:var(--fm);font-weight:700">{{f(item.lineTotal)}}</td>
+                  <td v-if="!poDet.isFinalized" style="padding:5px 9px;border-bottom:1px solid var(--brd);text-align:center">
+                    <button v-if="!(poDet.receipts||[]).length" class="btn btn-d btn-sm" @click="poDetRemoveItem(idx)" style="padding:2px 7px">×</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <!-- Add item row (open purchases only) -->
+          <div v-if="!poDet.isFinalized" style="margin-bottom:12px">
+            <div style="display:flex;gap:6px;margin-bottom:5px">
+              <input v-model="poDetSrch" class="fc" style="flex:1" placeholder="Search product to add..." @input="poDetSrchProds"/>
+              <button class="btn btn-b btn-sm" @click="poDetAddManualItem">+ Manual Line</button>
+            </div>
+            <div v-if="poDetSrchRes.length" style="background:var(--sur2);border:1px solid var(--brd2);border-radius:var(--r);overflow:hidden;margin-bottom:4px">
+              <div v-for="p in poDetSrchRes" :key="p._id" @click="poDetAddItem(p)" style="padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--brd);font-size:12px;color:var(--txt)" class="hover-row">
+                <strong>{{p.name}}</strong> <span style="color:var(--tx3)">{{p.sku}}</span> <span style="float:right;font-family:var(--fm)">{{f(p.costPrice)}}</span>
+              </div>
+            </div>
+          </div>
+      <!-- Notes -->
+      <div class="fl" style="margin-top:4px"><label>Notes</label>
+        <textarea v-model="poDet.notes" class="fc" rows="2" @blur="savePONotes"></textarea>
       </div>
     </div>
     <div class="mf">
-      <div style="font-size:12px;color:var(--tx3);flex:1">Balance: <span class="mn fw" :class="(poDet.balance||0)>0.01?'cr':'cg'">{{f(poDet.balance||0)}}</span></div>
+      <div style="font-size:12px;color:var(--tx3);flex:1">Still to pay: <span class="mn fw" :class="(poDet.balance||0)>0.01?'cr':'cg'">{{f(poDet.balance||0)}}</span></div>
       <button class="btn btn-o" @click="mPODetail=false">Close</button>
     </div>
+  </div>
+</div>
+
+<!-- RECEIVE GOODS (staged purchases) -->
+<div class="mo" v-if="mReceive" @click.self="mReceive=false">
+  <div class="md"><div class="mh"><h3>Goods received — {{poDet.purchaseNo}}</h3><button class="xbtn" @click="mReceive=false">×</button></div>
+    <div class="mb">
+      <div v-if="mErr" class="al al-d">{{mErr}}</div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
+        <thead><tr><th style="text-align:left">Item</th><th style="text-align:right">Ordered</th><th style="text-align:right">Already received</th><th style="text-align:right">Receive now</th></tr></thead>
+        <tbody>
+          <tr v-for="l in recvLines" :key="l.lineIndex">
+            <td>{{l.productName}}</td><td class="mn tr">{{l.ordered}}</td><td class="mn tr">{{l.received}}</td>
+            <td class="tr"><input v-model="l.now" type="number" min="0" :max="l.ordered-l.received" step="0.01" class="fc" style="width:100px;text-align:right" :disabled="l.received>=l.ordered"/></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="fr"><div class="fl"><label>Date</label><input v-model="recvDate" type="date" class="fc"/></div><div class="fl"><label>Note</label><input v-model="recvNote" class="fc" placeholder="e.g. first truck"/></div></div>
+    </div>
+    <div class="mf"><button class="btn btn-o" @click="mReceive=false">Cancel</button><button class="btn btn-p" @click="saveReceive" :disabled="saving">{{saving?'Saving…':'Save'}}</button></div>
+  </div>
+</div>
+
+<!-- EXTRA COST (freight, customs, clearing…) -->
+<div class="mo" v-if="mExtraCost" @click.self="mExtraCost=false">
+  <div class="md md-sm"><div class="mh"><h3>Extra cost — {{poDet.purchaseNo}}</h3><button class="xbtn" @click="mExtraCost=false">×</button></div>
+    <div class="mb">
+      <div v-if="mErr" class="al al-d">{{mErr}}</div>
+      <div class="fg">
+        <div class="fl"><label>What for *</label><input v-model="eCost.description" class="fc" list="costSuggest" placeholder="Freight, Customs, Clearing…"/>
+          <datalist id="costSuggest"><option>Freight</option><option>Customs</option><option>Clearing</option><option>Other</option></datalist></div>
+        <div class="fr"><div class="fl"><label>Amount (LKR) *</label><input v-model="eCost.amount" type="number" min="0" step="0.01" class="fc"/></div><div class="fl"><label>Date</label><input v-model="eCost.date" type="date" class="fc"/></div></div>
+        <div style="font-size:11px;color:var(--tx3)">Added to the purchase total, the supplier balance and the cost of each item.</div>
+      </div>
+    </div>
+    <div class="mf"><button class="btn btn-o" @click="mExtraCost=false">Cancel</button><button class="btn btn-p" @click="saveExtraCost" :disabled="saving">{{saving?'Saving…':'Add'}}</button></div>
   </div>
 </div>
 

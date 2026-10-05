@@ -14,6 +14,11 @@ const purchaseItemSchema = new mongoose.Schema({
   lineTotal:    { type: Number, default: 0 },
   landingCostShare: { type: Number, default: 0 },
   finalUnitCost:{ type: Number, default: 0 },
+  receivedQty:  { type: Number, default: 0 },   // staged purchases: how much has arrived so far
+  customsDutyRate: { type: Number, default: 0 },
+  customsDutyAmt:  { type: Number, default: 0 },
+  cessRate:        { type: Number, default: 0 },
+  cessAmt:         { type: Number, default: 0 },
 }, { _id: false });
 
 const landingCostSchema = new mongoose.Schema({
@@ -23,7 +28,8 @@ const landingCostSchema = new mongoose.Schema({
   amount:      { type: Number, required: true },
   taxCode:     { type: String, default: '' },
   isImportTax: { type: Boolean, default: false },
-  method:      { type: String, enum: ['value','qty','equal'], default: 'value' }
+  method:      { type: String, enum: ['value','qty','equal'], default: 'value' },
+  date:        { type: Date, default: Date.now }
 }, { _id: false });
 
 // Payment stage — each payment made at different times
@@ -49,6 +55,16 @@ const purchaseSchema = new mongoose.Schema({
   items:         [purchaseItemSchema],
   landingCosts:  [landingCostSchema],
   paymentStages: [paymentStageSchema],       // NEW: staged payments
+  // legacy = stock was added when the purchase was created (never receive again);
+  // staged = stock moves only through receipts
+  receiptMode:   { type: String, enum: ['legacy','staged'], default: 'legacy' },
+  receipts: [{
+    date:  { type: Date, default: Date.now },
+    note:  { type: String, default: '' },
+    lines: [{ lineIndex: { type: Number, required: true }, qty: { type: Number, required: true }, _id: false }],
+  }],
+  isFinalized:     { type: Boolean, default: false },  // locks items and extra costs (payments/receipts still allowed)
+  landingTaxTotal: { type: Number, default: 0 },
   subtotalForeign: { type: Number, default: 0 },
   subtotal:      { type: Number, default: 0 },
   taxAmount:     { type: Number, default: 0 },
@@ -77,6 +93,11 @@ purchaseSchema.pre('save', function(next) {
   if (this.balance <= 0.001) this.status = 'paid';
   else if (this.paid > 0) this.status = 'partial';
   else this.status = 'open';
+  if (this.receiptMode === 'staged') {
+    this.goodsReceived = (this.items || []).length > 0 && this.items.every(i => (i.receivedQty || 0) >= i.qty);
+    const last = (this.receipts || []).reduce((d, r) => (!d || r.date > d ? r.date : d), null);
+    this.goodsReceivedDate = last || undefined;
+  }
   next();
 });
 

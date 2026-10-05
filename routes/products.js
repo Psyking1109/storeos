@@ -54,18 +54,34 @@ router.get('/commitments-summary', requireAuth, async (req, res) => {
       { $group: { _id: '$items.product', undelivered: { $sum: { $subtract: ['$items.qty', { $ifNull: ['$items.deliveredQty', 0] }] } } } }
     ]);
 
+    // On order = still to arrive on staged purchases (ordered − received), per product
+    const Purchase = require('../models/Purchase');
+    const onOrderAgg = await Purchase.aggregate([
+      { $match: { receiptMode: 'staged' } },
+      { $unwind: '$items' },
+      { $project: { product: '$items.product', left: { $subtract: ['$items.qty', { $ifNull: ['$items.receivedQty', 0] }] } } },
+      { $match: { product: { $ne: null }, left: { $gt: 0 } } },
+      { $group: { _id: '$product', onOrder: { $sum: '$left' } } }
+    ]);
+
     const summary = {};
+    const row0 = () => ({ proforma: 0, invoicedUndelivered: 0, onOrder: 0 });
     for (const row of proformaAgg) {
       if (!row._id) continue;
-      summary[row._id.toString()] = { proforma: row.proforma, invoicedUndelivered: 0 };
+      summary[row._id.toString()] = { ...row0(), proforma: row.proforma };
     }
     for (const row of invoicedAgg) {
       if (!row._id) continue;
       const key = row._id.toString();
-      if (!summary[key]) summary[key] = { proforma: 0, invoicedUndelivered: 0 };
+      if (!summary[key]) summary[key] = row0();
       summary[key].invoicedUndelivered = row.undelivered;
     }
-    res.json(summary); // { [productId]: { proforma, invoicedUndelivered } }
+    for (const row of onOrderAgg) {
+      const key = row._id.toString();
+      if (!summary[key]) summary[key] = row0();
+      summary[key].onOrder = row.onOrder;
+    }
+    res.json(summary); // { [productId]: { proforma, invoicedUndelivered, onOrder } }
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -225,7 +241,21 @@ router.get('/:id/commitments', requireAuth, async (req, res) => {
       }
     }
 
-    res.json({ proforma, invoiced });
+    // Staged purchases with goods still to arrive for this product
+    const Purchase = require('../models/Purchase');
+    const openPOs = await Purchase.find({ receiptMode: 'staged', 'items.product': req.params.id }).sort({ date: -1 });
+    const onOrder = [];
+    for (const po of openPOs) {
+      for (const item of po.items) {
+        if (item.product?.toString() !== req.params.id) continue;
+        const outstanding = item.qty - (item.receivedQty || 0);
+        if (outstanding > 0.0001)
+          onOrder.push({ purchaseId: po._id, purchaseNo: po.purchaseNo, supplierName: po.supplierName,
+                         ordered: item.qty, received: item.receivedQty || 0, outstanding, date: po.date });
+      }
+    }
+
+    res.json({ proforma, invoiced, onOrder });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

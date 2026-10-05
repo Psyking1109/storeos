@@ -623,21 +623,23 @@ const commitSummary=ref({});
 async function loadCommitSummary(){try{commitSummary.value=await api('GET','/products/commitments-summary');}catch(e){}}
 function proformaQty(p){return commitSummary.value[p._id]?.proforma||0;}
 function undeliveredQty(p){return commitSummary.value[p._id]?.invoicedUndelivered||0;}
+function onOrderQty(p){return commitSummary.value[p._id]?.onOrder||0;}
 function availForSale(p){return (p.stock||0)-undeliveredQty(p);}
 
 // ── Drill-down modal for Proforma / Invoiced-Undelivered totals ──
 const mCommitDrill=ref(false);const commitDrillTitle=ref('');const commitDrillRows=ref([]);const commitDrillKind=ref('');
 async function openCommitDrill(p, kind){
   commitDrillKind.value=kind;
-  commitDrillTitle.value=(kind==='proforma'?'Proforma commitments — ':'Invoiced – Undelivered — ')+p.name;
+  commitDrillTitle.value=({proforma:'Proforma commitments — ',onorder:'On order (purchases still to arrive) — '}[kind]||'Invoiced – Undelivered — ')+p.name;
   try{
     const data=await api('GET','/products/'+p._id+'/commitments');
-    commitDrillRows.value=kind==='proforma'?data.proforma:data.invoiced;
+    commitDrillRows.value=kind==='proforma'?data.proforma:kind==='onorder'?(data.onOrder||[]):data.invoiced;
     mCommitDrill.value=true;
   }catch(e){alert(e.message);}
 }
 function openCommitDrillDoc(row){
   mCommitDrill.value=false;
+  if(row.purchaseId){api('GET','/purchases/'+row.purchaseId).then(po=>openPODetail(po)).catch(e=>alert(e.message));return;}
   api('GET','/invoices/'+row.invoiceId).then(doc=>openInvDetail(doc)).catch(e=>alert(e.message));
 }
 
@@ -1242,15 +1244,14 @@ async function saveDelivery(){
 
 // ── PO DETAIL: Payment Stages + Goods Received ────────────────────────────
 async function finalizePO(){
-  if(!confirm('Mark this purchase as FINAL? It cannot be edited after this.'))return;
+  if(!confirm('Lock the items and extra costs on this purchase? Payments and goods received can still be added.'))return;
   try{
     const updated=await api('PATCH','/purchases/'+poDet.value._id+'/finalize');
     poDet.value={...updated};loadPOs();
   }catch(e){alert(e.message);}
 }
 async function savePONotes(){
-  if(poDet.value.isFinalized)return;
-  try{await api('PUT','/purchases/'+poDet.value._id,{notes:poDet.value.notes});}catch(e){}
+  try{await api('PUT','/purchases/'+poDet.value._id,{notes:poDet.value.notes});}catch(e){alert('Notes not saved: '+e.message);}
 }
 // ── PO DETAIL EDITING ───────────────────────────────────────────────────────
 async function poDetSrchProds(){
@@ -1326,7 +1327,7 @@ function poDetAddTaxToItem(item,code){
   calcPodet();
 }
 function openPODetail(po){
-  poDet.value={...po};
+  poDet.value={...po};poPayOpen.value=false;
   const today2=new Date().toISOString().slice(0,10);
   newStage.value={amount:0,date:today2,paymentMode:'bank',description:'',reference:'',cashAccount:'',bankAccount:''};
   loadCas();loadBaccs();
@@ -1344,7 +1345,7 @@ async function savePayStage(){
     poDet.value={...updated};
     // Reset form but keep settings
     newStage.value={...newStage.value,amount:0,description:'',reference:''};
-    loadPOs();
+    poPayOpen.value=false;loadPOs();
   }catch(e){alert(e.message);}
   saving.value=false;
 }
@@ -1367,6 +1368,67 @@ async function toggleGoodsReceived(){
   }catch(e){alert(e.message);}
 }
 
+
+// ── PURCHASE IN STEPS: progress, goods received, extra costs, timeline ─────
+const poPayOpen=ref(false);
+const poOrderedQty=computed(()=>(poDet.value.items||[]).reduce((s,i)=>s+n(i.qty),0));
+const poReceivedQty=computed(()=>(poDet.value.items||[]).reduce((s,i)=>s+n(i.receivedQty),0));
+const poPaidPct=computed(()=>{const t=n(poDet.value.total);return t>0?Math.min(100,Math.round(n(poDet.value.paid)/t*100)):0;});
+const mReceive=ref(false);const recvLines=ref([]);const recvDate=ref(today);const recvNote=ref('');
+function openReceive(){
+  recvLines.value=(poDet.value.items||[]).map((it,i)=>({lineIndex:i,productName:it.productName,ordered:n(it.qty),received:n(it.receivedQty),now:Math.max(0,n(it.qty)-n(it.receivedQty))}));
+  recvDate.value=today;recvNote.value='';mErr.value='';mReceive.value=true;
+}
+async function saveReceive(){
+  const lines=recvLines.value.filter(l=>n(l.now)>0).map(l=>({lineIndex:l.lineIndex,qty:n(l.now)}));
+  if(!lines.length){mErr.value='Enter a quantity for at least one item';return;}
+  const over=recvLines.value.find(l=>n(l.now)>l.ordered-l.received+1e-9);
+  if(over){mErr.value=over.productName+': only '+(over.ordered-over.received)+' still to receive';return;}
+  saving.value=true;mErr.value='';
+  try{poDet.value=await api('POST','/purchases/'+poDet.value._id+'/receipts',{date:recvDate.value,note:recvNote.value,lines});mReceive.value=false;loadPOs();if(prods.value.length)loadProds();}
+  catch(e){mErr.value=e.message;}
+  saving.value=false;
+}
+async function delReceipt(rc){
+  if(!confirm('Undo this goods-received entry? The stock it added will be taken back out.'))return;
+  try{poDet.value=await api('DELETE','/purchases/'+poDet.value._id+'/receipts/'+rc._id);loadPOs();if(prods.value.length)loadProds();}
+  catch(e){alert(e.message);}
+}
+const mExtraCost=ref(false);const eCost=ref({});
+function openExtraCost(){eCost.value={description:'',amount:'',date:today};mErr.value='';mExtraCost.value=true;}
+async function saveExtraCost(){
+  const c=eCost.value;
+  if(!c.description){mErr.value='Say what the cost is for';return;}
+  if(!(n(c.amount)>0)){mErr.value='Amount must be more than 0';return;}
+  saving.value=true;mErr.value='';
+  try{
+    const landingCosts=[...(poDet.value.landingCosts||[]),{description:c.description,amount:n(c.amount),currency:'LKR',date:c.date}];
+    poDet.value=await api('PUT','/purchases/'+poDet.value._id,{landingCosts});mExtraCost.value=false;loadPOs();
+  }catch(e){mErr.value=e.message;}
+  saving.value=false;
+}
+async function delExtraCost(idx){
+  const lc=(poDet.value.landingCosts||[])[idx];
+  if(!lc||!confirm('Remove extra cost "'+lc.description+'" ('+f(lc.amount)+')?'))return;
+  try{poDet.value=await api('PUT','/purchases/'+poDet.value._id,{landingCosts:poDet.value.landingCosts.filter((_,i)=>i!==idx)});loadPOs();}
+  catch(e){alert(e.message);}
+}
+const poTimeline=computed(()=>{
+  const po=poDet.value;const ev=[];
+  const modeName={bank:'bank',cash:'cash',cheque:'cheque',endorsed:'endorsed cheque'};
+  for(const st of (po.paymentStages||[]))
+    ev.push({key:'p'+st._id,date:st.date,icon:'💰',text:'Payment — '+f(st.amount)+' — '+(modeName[st.paymentMode]||st.paymentMode),
+      sub:[st.description,st.reference?'#'+st.reference:''].filter(Boolean).join(' · '),undo:()=>delPayStage(st._id),undoLabel:'Undo'});
+  for(const rc of (po.receipts||[])){
+    const qty=(rc.lines||[]).reduce((s,l)=>s+n(l.qty),0);
+    ev.push({key:'r'+rc._id,date:rc.date,icon:'📦',text:'Goods received — '+qty+' items',
+      sub:[(rc.lines||[]).map(l=>((po.items||[])[l.lineIndex]?.productName||'line '+(l.lineIndex+1))+' '+l.qty).join(', '),rc.note].filter(Boolean).join(' · '),
+      undo:()=>delReceipt(rc),undoLabel:'Undo'});
+  }
+  (po.landingCosts||[]).forEach((lc,i)=>ev.push({key:'c'+i,date:lc.date||po.date,icon:'🚚',text:'Extra cost — '+lc.description+' — '+f(lc.amount),
+    sub:'',undo:po.isFinalized?null:()=>delExtraCost(i),undoLabel:'Remove'}));
+  return ev.sort((a,b)=>new Date(b.date)-new Date(a.date));
+});
 
 // ── INVOICE RETURNS ─────────────────────────────────────────────────────────
 function openReturn(inv){
@@ -1537,12 +1599,12 @@ previewInvNo,onCustChange,srchProds,addFirstProd,addProdToInv,addTaxToLine,calcI
 srchProdsPO,addProdToPO,addTaxToPOLine,addTaxToLC,calcPO,openNewPO,savePO,
 openCust,saveCust,openSupp,saveSupp,viewSuppHist,
 openCA,saveCA,openXfer,saveXfer,openExp,saveExp,delExp,openPay,savePay,
-openBAcc,saveBAcc,openBTx,saveBTx,delBTx,viewStmt,loadStmt,loadBTxs,mStockMovement,stockMovementData,viewStockMovement,mPODetail,poDet,newStage,openPODetail,savePayStage,delPayStage,toggleGoodsReceived,finalizePO,savePONotes,poFinFilt,poDetSrch,poDetSrchRes,poDetSrchProds,poDetAddItem,poDetAddManualItem,poDetRemoveItem,poDetAddLC,poDetRemoveLC,calcPodet:calcPoDet,savePoDetItems,poDetAddTaxToItem,mInvDetail,invDet,openInvDetail,converting,convertToInvoice,mDelivery,delivering,delItems,delDoc,openDeliveryModal,saveDelivery,mReturn,retInv,retItems,retTotal,retReason,retDate,retRestock,openReturn,calcReturnTotal,saveReturn,
+openBAcc,saveBAcc,openBTx,saveBTx,delBTx,viewStmt,loadStmt,loadBTxs,mStockMovement,stockMovementData,viewStockMovement,mPODetail,poDet,newStage,openPODetail,savePayStage,delPayStage,toggleGoodsReceived,finalizePO,savePONotes,poPayOpen,poOrderedQty,poReceivedQty,poPaidPct,mReceive,recvLines,recvDate,recvNote,openReceive,saveReceive,delReceipt,mExtraCost,eCost,openExtraCost,saveExtraCost,delExtraCost,poTimeline,poFinFilt,poDetSrch,poDetSrchRes,poDetSrchProds,poDetAddItem,poDetAddManualItem,poDetRemoveItem,poDetAddLC,poDetRemoveLC,calcPodet:calcPoDet,savePoDetItems,poDetAddTaxToItem,mInvDetail,invDet,openInvDetail,converting,convertToInvoice,mDelivery,delivering,delItems,delDoc,openDeliveryModal,saveDelivery,mReturn,retInv,retItems,retTotal,retReason,retDate,retRestock,openReturn,calcReturnTotal,saveReturn,
 openChq,saveChq,qChqSts,saveChqSts,delChq,loadProds,loadPOs,loadChqs,n,pickChqParty,mChqEnd,eEnd,endPOs,openEndorse,loadEndPOs,saveEndorse,reverseEndorse,payChqDate,payChqBank,payChqDrawer,
 openTxRate,saveTxRate,disableTxRate,openInvType,saveInvType,delInvType,mTaxDetail,taxDetailData,openTaxDetail,
 openLoc,saveLoc,openUser,saveUser,disableUser,viewCashLedger,loadCashLedger,cashLedgerAcc,cashLedRows,cashLedFr,cashLedTo,selectedCashRow,mEditCashEntry,eCashEntry,editCashEntry,saveCashEntry,delCashEntry,addTaxToInvType,applyInvTypeTaxConfig,toggleInvTypeTax,
 loadLed,loadAccLed,loadTaxRpt,loadTaxMonthly,loadRpt,expandedRptRows,toggleRptRow,loadInvs,loadExps,mCat,eCat,savedCats,pCatFilter,saveCat,delCat,prodsByCategory,mQuickProd,openQuickProd,saveQuickProd,toggleLooseMode,
-commitSummary,loadCommitSummary,proformaQty,undeliveredQty,availForSale,mCommitDrill,commitDrillTitle,commitDrillRows,commitDrillKind,openCommitDrill,openCommitDrillDoc,
+commitSummary,loadCommitSummary,proformaQty,undeliveredQty,onOrderQty,availForSale,mCommitDrill,commitDrillTitle,commitDrillRows,commitDrillKind,openCommitDrill,openCommitDrillDoc,
 irdSettings,irdSettingsErr,savingIrd,loadIrdSettings,previewIrdNumber,saveIrdSettings,
   isDark,toggleTheme,mCoSettings,coSettings,coSettingsOk,saveCoSettings,loadCoSettings,onLogoUpload,openReconForAccount,
   amountInWords,lineStockWarning,

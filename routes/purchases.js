@@ -98,10 +98,81 @@ router.get('/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Item loop, item taxes, import duty, extra (landing) costs and totals. Mutates `data` exactly as
+// POST / always has; returns the figures postPurchaseLedger needs.
+function computePurchase(data) {
+  const isImport = data.purchaseType === 'import';
+  const exRate = isImport ? (data.exchangeRate || 1) : 1;
+  let subForeign = 0, subLKR = 0, totalTax = 0;
+  let vatInput = 0, ssclAmt = 0, customsDutyTotal = 0, cessTotal = 0;
+
+  for (const item of data.items) {
+    if (isImport) { item.unitCostForeign = item.unitCostForeign || 0; item.unitCost = item.unitCostForeign * exRate; }
+    item.lineSubtotal = (item.qty || 0) * (item.unitCost || 0);
+    subForeign += (item.qty || 0) * (item.unitCostForeign || 0);
+    let itemTax = 0;
+    if (!data.taxInclusive && item.taxLines && item.taxLines.length) {
+      item.taxLines = item.taxLines.map(tl => {
+        const amt = item.lineSubtotal * (tl.rate / 100);
+        if (tl.taxCode === 'VAT')  vatInput += amt;
+        if (tl.taxCode === 'SSCL') ssclAmt  += amt;
+        itemTax += amt; return { ...tl, amount: amt };
+      });
+    }
+    if (isImport) {
+      if (item.customsDutyRate) { item.customsDutyAmt = item.lineSubtotal * (item.customsDutyRate / 100); customsDutyTotal += item.customsDutyAmt; itemTax += item.customsDutyAmt; }
+      if (item.cessRate) { item.cessAmt = item.lineSubtotal * (item.cessRate / 100); cessTotal += item.cessAmt; itemTax += item.cessAmt; }
+    }
+    item.taxAmount = itemTax; item.lineTotal = item.lineSubtotal + itemTax;
+    totalTax += itemTax; subLKR += item.lineSubtotal;
+  }
+
+  let landingTotal = 0, importTaxTotal = 0, palAmt = 0;
+  for (const lc of (data.landingCosts || [])) {
+    if (lc.currency && lc.currency !== 'LKR' && lc.amountForeign) lc.amount = lc.amountForeign * exRate;
+    landingTotal += lc.amount || 0;
+    if (lc.isImportTax) {
+      importTaxTotal += lc.amount || 0;
+      if (lc.taxCode === 'PAL')       palAmt          += lc.amount || 0;
+      if (lc.taxCode === 'VAT')       vatInput        += lc.amount || 0;
+      if (lc.taxCode === 'CUST_DUTY') customsDutyTotal += lc.amount || 0;
+      if (lc.taxCode === 'CESS')      cessTotal        += lc.amount || 0;
+    }
+  }
+
+  data.items = distributeLanding(data.items, data.landingCosts || []);
+  data.subtotalForeign = subForeign; data.subtotal = subLKR;
+  data.taxAmount = totalTax; data.landingCostTotal = landingTotal;
+  data.importTaxTotal = importTaxTotal; data.vatInputAmount = vatInput;
+  data.palAmount = palAmt; data.customsDutyTotal = customsDutyTotal;
+  data.cessTotal = cessTotal; data.ssclAmount = ssclAmt;
+  data.total = subLKR + totalTax + landingTotal;
+  data.balance = data.total - (data.paid || 0);
+  return { subLKR, vatInput, palAmt, customsDutyTotal, landingTotal, importTaxTotal, total: data.total };
+}
+
+// The purchase's own ledger rows (payments are separate rows tagged narration 'stage:<id>')
+async function postPurchaseLedger(po, t) {
+  const base = { date: po.date, reference: po.purchaseNo, sourceType: 'purchase', sourceId: po._id };
+  const le = [
+    { ...base, account: 'Purchases', accountType: 'purchases', debit: t.subLKR, credit: 0, description: `PO ${po.purchaseNo} — ${po.supplierName}` },
+    { ...base, account: 'Accounts Payable', accountType: 'payable', debit: 0, credit: t.total, description: `PO ${po.purchaseNo} — ${po.supplierName}` },
+  ];
+  if (t.vatInput)         le.push({ ...base, account: 'Input VAT',    accountType: 'asset',   debit: t.vatInput,         credit: 0, description: `Input VAT on PO ${po.purchaseNo}` });
+  if (t.palAmt)           le.push({ ...base, account: 'PAL Expense',  accountType: 'expense', debit: t.palAmt,           credit: 0, description: `PAL on PO ${po.purchaseNo}` });
+  if (t.customsDutyTotal) le.push({ ...base, account: 'Customs Duty', accountType: 'expense', debit: t.customsDutyTotal, credit: 0, description: `Customs on PO ${po.purchaseNo}` });
+  if (t.landingTotal - t.importTaxTotal > 0) le.push({ ...base, account: 'Landing Costs', accountType: 'expense', debit: t.landingTotal - t.importTaxTotal, credit: 0, description: `Landing costs PO ${po.purchaseNo}` });
+  // Taxes not split out above (SSCL, CESS, other item or import taxes) so Dr always equals Cr
+  const otherTax = t.total - le.filter(e => e.debit).reduce((s, e) => s + e.debit, 0);
+  if (otherTax > 0.005) le.push({ ...base, account: 'Other Purchase Taxes', accountType: 'expense', debit: otherTax, credit: 0, description: `Other taxes on PO ${po.purchaseNo}` });
+  await Ledger.insertMany(le);
+}
+
 router.post('/', async (req, res) => {
   try {
     const data = { ...req.body };
     if (!data.supplier) delete data.supplier;
+    if (!Array.isArray(data.items) || !data.items.length) return res.status(400).json({ error: 'Add at least one item' });
     const upFront = Number(data.paid) || 0;
     if (upFront > 0) {
       const pe = stagePaymentError({ amount: upFront, paymentMode: data.paymentMode, cashAccount: data.cashAccount, bankAccount: data.bankAccount, reference: data.chequeNo || data.paymentReference });
@@ -109,76 +180,16 @@ router.post('/', async (req, res) => {
     }
     data.paid = 0; // recorded below as a payment stage
     if (!data.purchaseNo) data.purchaseNo = await nextPurchaseNo();
-    const isImport = data.purchaseType === 'import';
-    const exRate = isImport ? (data.exchangeRate || 1) : 1;
-    let subForeign = 0, subLKR = 0, totalTax = 0;
-    let vatInput = 0, ssclAmt = 0, customsDutyTotal = 0, cessTotal = 0;
-
-    for (const item of data.items) {
-      if (isImport) { item.unitCostForeign = item.unitCostForeign || 0; item.unitCost = item.unitCostForeign * exRate; }
-      item.lineSubtotal = (item.qty || 0) * (item.unitCost || 0);
-      subForeign += (item.qty || 0) * (item.unitCostForeign || 0);
-      let itemTax = 0;
-      if (!data.taxInclusive && item.taxLines && item.taxLines.length) {
-        item.taxLines = item.taxLines.map(tl => {
-          const amt = item.lineSubtotal * (tl.rate / 100);
-          if (tl.taxCode === 'VAT')  vatInput += amt;
-          if (tl.taxCode === 'SSCL') ssclAmt  += amt;
-          itemTax += amt; return { ...tl, amount: amt };
-        });
-      }
-      if (isImport) {
-        if (item.customsDutyRate) { item.customsDutyAmt = item.lineSubtotal * (item.customsDutyRate / 100); customsDutyTotal += item.customsDutyAmt; itemTax += item.customsDutyAmt; }
-        if (item.cessRate) { item.cessAmt = item.lineSubtotal * (item.cessRate / 100); cessTotal += item.cessAmt; itemTax += item.cessAmt; }
-      }
-      item.taxAmount = itemTax; item.lineTotal = item.lineSubtotal + itemTax;
-      totalTax += itemTax; subLKR += item.lineSubtotal;
-    }
-
-    let landingTotal = 0, importTaxTotal = 0, palAmt = 0;
-    for (const lc of (data.landingCosts || [])) {
-      if (lc.currency && lc.currency !== 'LKR' && lc.amountForeign) lc.amount = lc.amountForeign * exRate;
-      landingTotal += lc.amount || 0;
-      if (lc.isImportTax) {
-        importTaxTotal += lc.amount || 0;
-        if (lc.taxCode === 'PAL')       palAmt          += lc.amount || 0;
-        if (lc.taxCode === 'VAT')       vatInput        += lc.amount || 0;
-        if (lc.taxCode === 'CUST_DUTY') customsDutyTotal += lc.amount || 0;
-        if (lc.taxCode === 'CESS')      cessTotal        += lc.amount || 0;
-      }
-    }
-
-    const itemsWithLanding = distributeLanding(data.items, data.landingCosts || []);
-    data.items = itemsWithLanding;
-    data.subtotalForeign = subForeign; data.subtotal = subLKR;
-    data.taxAmount = totalTax; data.landingCostTotal = landingTotal;
-    data.importTaxTotal = importTaxTotal; data.vatInputAmount = vatInput;
-    data.palAmount = palAmt; data.customsDutyTotal = customsDutyTotal;
-    data.cessTotal = cessTotal; data.ssclAmount = ssclAmt;
-    data.total = subLKR + totalTax + landingTotal;
-    data.balance = data.total - (data.paid || 0);
+    for (const item of data.items) item.receivedQty = 0;
+    const totals = computePurchase(data);
+    // Stock no longer moves here: it moves when goods are received (POST /:id/receipts)
+    data.receiptMode = 'staged';
 
     const purchase = new Purchase(data);
     await purchase.save();
 
-    if (data.updateStock !== false) {
-      for (const item of itemsWithLanding) {
-        if (item.product) await Product.findByIdAndUpdate(item.product, { $inc: { stock: item.qty }, $set: { costPrice: item.finalUnitCost || item.unitCost } });
-      }
-    }
     if (data.supplier && data.balance > 0) await Supplier.findByIdAndUpdate(data.supplier, { $inc: { balance: data.balance } });
-    const le = [
-      { date: data.date, account: 'Purchases', accountType: 'purchases', debit: subLKR, credit: 0, description: `PO ${data.purchaseNo} — ${data.supplierName}`, reference: data.purchaseNo, sourceType: 'purchase', sourceId: purchase._id },
-      { date: data.date, account: 'Accounts Payable', accountType: 'payable', debit: 0, credit: data.total, description: `PO ${data.purchaseNo} — ${data.supplierName}`, reference: data.purchaseNo, sourceType: 'purchase', sourceId: purchase._id },
-    ];
-    if (vatInput)        le.push({ date: data.date, account: 'Input VAT',      accountType: 'asset', debit: vatInput,        credit: 0, description: `Input VAT on PO ${data.purchaseNo}`, reference: data.purchaseNo, sourceType: 'purchase', sourceId: purchase._id });
-    if (palAmt)          le.push({ date: data.date, account: 'PAL Expense',    accountType: 'expense', debit: palAmt,          credit: 0, description: `PAL on PO ${data.purchaseNo}`,       reference: data.purchaseNo, sourceType: 'purchase', sourceId: purchase._id });
-    if (customsDutyTotal)le.push({ date: data.date, account: 'Customs Duty',   accountType: 'expense', debit: customsDutyTotal,credit: 0, description: `Customs on PO ${data.purchaseNo}`,   reference: data.purchaseNo, sourceType: 'purchase', sourceId: purchase._id });
-    if (landingTotal - importTaxTotal > 0) le.push({ date: data.date, account: 'Landing Costs', accountType: 'expense', debit: landingTotal - importTaxTotal, credit: 0, description: `Landing costs PO ${data.purchaseNo}`, reference: data.purchaseNo, sourceType: 'purchase', sourceId: purchase._id });
-    // Taxes not split out above (SSCL, CESS, other item or import taxes) so Dr always equals Cr
-    const otherTax = data.total - le.filter(e => e.debit).reduce((s, e) => s + e.debit, 0);
-    if (otherTax > 0.005) le.push({ date: data.date, account: 'Other Purchase Taxes', accountType: 'expense', debit: otherTax, credit: 0, description: `Other taxes on PO ${data.purchaseNo}`, reference: data.purchaseNo, sourceType: 'purchase', sourceId: purchase._id });
-    await Ledger.insertMany(le);
+    await postPurchaseLedger(purchase, totals);
     if (upFront > 0) await payPurchase(purchase, { amount: upFront, paymentMode: data.paymentMode, cashAccount: data.cashAccount,
       bankAccount: data.bankAccount, reference: data.chequeNo || data.paymentReference || '', description: 'Paid when PO was created', date: data.date });
     res.status(201).json(purchase);
@@ -243,26 +254,163 @@ router.delete('/:id/payment-stage/:stageId', async (req, res) => {
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
-// PATCH mark goods as received / not received
+const plain = d => (d && d.toObject ? d.toObject() : { ...d });
+const lineName = (po, i) => (po.items[i] && po.items[i].productName) || `line ${i + 1}`;
+
+// POST record goods received (partial deliveries allowed). Body: { date, note, lines: [{ lineIndex, qty }] }
+router.post('/:id/receipts', async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
+    const po = await Purchase.findById(req.params.id);
+    if (!po) return res.status(404).json({ error: 'Not found' });
+    // (Purchases have no cancelled state in this app, so only the mode is checked.)
+    if (po.receiptMode !== 'staged')
+      return res.status(400).json({ error: 'This older purchase added its stock when it was created, so goods can\'t be received again.' });
+    const lines = (req.body.lines || []).map(l => ({ lineIndex: Number(l.lineIndex), qty: Number(l.qty) })).filter(l => l.qty);
+    if (!lines.length) return res.status(400).json({ error: 'Enter a quantity for at least one item' });
+
+    const want = {};
+    for (const l of lines) {
+      if (!Number.isInteger(l.lineIndex) || !po.items[l.lineIndex]) return res.status(400).json({ error: 'Unknown item line' });
+      if (!(l.qty > 0)) return res.status(400).json({ error: `Quantity for ${lineName(po, l.lineIndex)} must be more than 0` });
+      want[l.lineIndex] = (want[l.lineIndex] || 0) + l.qty;
+    }
+    for (const [i, q] of Object.entries(want)) {
+      const it = po.items[i];
+      const left = it.qty - (it.receivedQty || 0);
+      if (q > left + 1e-9) return res.status(400).json({ error: `${it.productName}: only ${+left.toFixed(4)} still to receive, you entered ${q}` });
+    }
+
+    for (const l of lines) {
+      const it = po.items[l.lineIndex];
+      it.receivedQty = (it.receivedQty || 0) + l.qty;
+      if (po.updateStock !== false && it.product)
+        await Product.findByIdAndUpdate(it.product, { $inc: { stock: l.qty }, $set: { costPrice: it.finalUnitCost || it.unitCost } });
+    }
+    po.receipts.push({ date: req.body.date ? new Date(req.body.date) : new Date(), note: req.body.note || '', lines });
+    po.markModified('items');
+    await po.save();
+    res.json(po);
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+// DELETE undo a receipt
+router.delete('/:id/receipts/:receiptId', async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
+    const po = await Purchase.findById(req.params.id);
+    if (!po) return res.status(404).json({ error: 'Not found' });
+    const rc = po.receipts.id(req.params.receiptId);
+    if (!rc) return res.status(404).json({ error: 'Receipt not found' });
+
+    // Stock check first, per product (a product can appear on more than one line)
+    if (po.updateStock !== false) {
+      const take = {};
+      for (const l of rc.lines) { const it = po.items[l.lineIndex]; if (it && it.product) take[it.product] = (take[it.product] || 0) + l.qty; }
+      for (const [pid, q] of Object.entries(take)) {
+        const prod = await Product.findById(pid);
+        if (prod && (prod.stock || 0) < q - 1e-9)
+          return res.status(400).json({ error: `Can't undo: ${prod.name} has only ${prod.stock} in stock but this receipt added ${q}. Some may already be sold.` });
+      }
+      for (const [pid, q] of Object.entries(take)) await Product.findByIdAndUpdate(pid, { $inc: { stock: -q } });
+    }
+    for (const l of rc.lines) { const it = po.items[l.lineIndex]; if (it) it.receivedQty = Math.max(0, (it.receivedQty || 0) - l.qty); }
+    po.receipts.pull(rc._id);
+    po.markModified('items');
+    await po.save();
+    res.json(po);
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+// PUT edit notes, items and extra costs. Items/extra costs are locked once finalized.
+router.put('/:id', async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
+    const po = await Purchase.findById(req.params.id);
+    if (!po) return res.status(404).json({ error: 'Not found' });
+    if (req.body.notes !== undefined) po.notes = req.body.notes;
+
+    const touchItems = Array.isArray(req.body.items), touchCosts = Array.isArray(req.body.landingCosts);
+    if (!touchItems && !touchCosts) { await po.save(); return res.json(po); }
+    if (po.isFinalized) return res.status(400).json({ error: 'This purchase is finalized: items and extra costs can no longer be changed.' });
+
+    const oldItems = po.items.map(plain);
+    let items = oldItems;
+    if (touchItems) {
+      items = req.body.items.map(plain);
+      if (!items.length) return res.status(400).json({ error: 'A purchase needs at least one item' });
+      const sameLine = (a, b) => String(a.product || '') === String(b.product || '') && (a.product || a.productName === b.productName);
+      for (let i = 0; i < oldItems.length; i++) {
+        const o = oldItems[i], n = items[i];
+        const rec = o.receivedQty || 0;
+        if ((po.receipts.length || rec > 0) && (!n || !sameLine(o, n)))
+          return res.status(400).json({ error: `Goods have been received on this purchase, so lines can't be removed or reordered (${o.productName}). Add new lines instead.` });
+        if (n && sameLine(o, n)) {
+          n.receivedQty = rec;  // the server's count wins
+          if (Number(n.qty) < rec - 1e-9) return res.status(400).json({ error: `${o.productName}: ${rec} already received, so the quantity can't go below ${rec}` });
+        }
+      }
+      for (let i = oldItems.length; i < items.length; i++) items[i].receivedQty = 0;
+      for (const it of items) { it.qty = Number(it.qty) || 0; if (!it.product) delete it.product; }
+    }
+    const costs = (touchCosts ? req.body.landingCosts : po.landingCosts).map(plain).map(c => ({ ...c, amount: Number(c.amount) || 0, date: c.date || new Date() }));
+
+    // Older purchases added stock at creation: keep stock in step when their quantities change
+    if (po.receiptMode !== 'staged' && po.updateStock !== false && touchItems) {
+      const delta = {};
+      for (const it of oldItems) if (it.product) delta[it.product] = (delta[it.product] || 0) - (it.qty || 0);
+      for (const it of items) if (it.product) delta[it.product] = (delta[it.product] || 0) + (it.qty || 0);
+      for (const [pid, d] of Object.entries(delta)) {
+        if (d >= 0) continue;
+        const prod = await Product.findById(pid);
+        if (prod && (prod.stock || 0) + d < -1e-9) return res.status(400).json({ error: `Can't reduce ${prod.name}: only ${prod.stock} left in stock` });
+      }
+      for (const [pid, d] of Object.entries(delta)) if (d) await Product.findByIdAndUpdate(pid, { $inc: { stock: d } });
+    }
+
+    const data = { purchaseType: po.purchaseType, exchangeRate: po.exchangeRate, taxInclusive: po.taxInclusive, paid: po.paid, items, landingCosts: costs };
+    const totals = computePurchase(data);
+    const oldTotal = po.total || 0;
+    for (const k of ['items', 'landingCosts', 'subtotal', 'subtotalForeign', 'taxAmount', 'landingCostTotal', 'importTaxTotal', 'vatInputAmount', 'total']) po[k] = data[k];
+    po.landingTaxTotal = 0; // extra-cost taxes are not supported on the server
+    await po.save();
+
+    // Re-post the purchase's own rows; payment rows (narration 'stage:<id>') stay
+    await Ledger.deleteMany({ sourceType: 'purchase', sourceId: po._id, narration: { $not: /^stage:/ } });
+    await postPurchaseLedger(po, totals);
+    if (po.supplier && po.total !== oldTotal) await Supplier.findByIdAndUpdate(po.supplier, { $inc: { balance: po.total - oldTotal } });
+
+    // Extra costs change the real unit cost of goods already on the shelf
+    for (const it of po.items) {
+      const onShelf = po.receiptMode === 'staged' ? (it.receivedQty || 0) > 0 : po.updateStock !== false;
+      if (onShelf && it.product) await Product.findByIdAndUpdate(it.product, { $set: { costPrice: it.finalUnitCost || it.unitCost } });
+    }
+    res.json(po);
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+// PATCH finalize: locks items and extra costs; payments and receipts stay allowed
+router.patch('/:id/finalize', async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
+    const po = await Purchase.findById(req.params.id);
+    if (!po) return res.status(404).json({ error: 'Not found' });
+    po.isFinalized = true;
+    await po.save();
+    res.json(po);
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+// PATCH mark goods as received / not received (older purchases only; a label, stock already moved)
 router.patch('/:id/goods-received', async (req, res) => {
   try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
     const { received, date } = req.body;
     const po = await Purchase.findById(req.params.id);
     if (!po) return res.status(404).json({ error: 'Not found' });
-
+    if (po.receiptMode === 'staged') return res.status(400).json({ error: 'Use "Goods received" to record what arrived.' });
     po.goodsReceived = !!received;
     po.goodsReceivedDate = received ? (date ? new Date(date) : new Date()) : null;
-
-    // If receiving now and updateStock was set, update stock
-    if (received && po.updateStock && !po.goodsReceived) {
-      const Product = require('../models/Product');
-      for (const item of po.items) {
-        if (item.product) {
-          await Product.findByIdAndUpdate(item.product, { $inc: { stock: item.qty } });
-        }
-      }
-    }
-
     await po.save();
     res.json(po);
   } catch (err) { res.status(400).json({ error: err.message }); }
