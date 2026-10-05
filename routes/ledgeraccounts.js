@@ -33,28 +33,62 @@ router.get('/', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Ledger.accountType -> trial balance type (a LedgerAccount with the same name wins)
+const TB_TYPE = {
+  bank:'asset', cash:'asset', receivable:'asset', cheque:'asset', asset:'asset',
+  payable:'liability', tax:'liability', liability:'liability',
+  sales:'income', revenue:'income', income:'income',
+  purchases:'expense', expense:'expense',
+  equity:'equity',
+};
+
 router.get('/reports/trial-balance', async (req, res) => {
   try {
-    const accounts = await LedgerAccount.find({ active: true }).sort({ type:1, name:1 });
+    const [ledgerAccs, sums] = await Promise.all([
+      LedgerAccount.find({ active: true }),
+      Ledger.aggregate([
+        { $group: { _id: { account: '$account', accountType: '$accountType' },
+                    debit: { $sum: { $ifNull: ['$debit', 0] } },
+                    credit: { $sum: { $ifNull: ['$credit', 0] } } } },
+      ]),
+    ]);
+
+    // Union of ledger account names and active LedgerAccount documents
+    const rows = new Map();
+    const row = name => {
+      if (!rows.has(name)) rows.set(name, { account: name, code: '', type: '', debit: 0, credit: 0, opening: 0 });
+      return rows.get(name);
+    };
+    for (const s of sums) {
+      const r = row(s._id.account || '(unnamed)');
+      r.debit  += s.debit;
+      r.credit += s.credit;
+      if (!r.type) r.type = (s._id.accountType === 'cheque' && /payable/i.test(r.account)) ? 'liability'
+                          : (TB_TYPE[s._id.accountType] || 'asset');
+    }
+    for (const acc of ledgerAccs) {
+      const r = row(acc.name);
+      r.code = acc.code || '';
+      r.type = acc.type;
+      r.opening = acc.openingBalance || 0;
+    }
+
     const result = [];
     let totalDr = 0, totalCr = 0;
-    for (const acc of accounts) {
-      const entries = await Ledger.find({ account: acc.name });
-      const debit  = entries.reduce((s,e) => s + (e.debit||0), 0);
-      const credit = entries.reduce((s,e) => s + (e.credit||0), 0);
-      const isDebitNormal = ['asset','expense'].includes(acc.type);
-      const balance = isDebitNormal
-        ? (acc.openingBalance||0) + debit - credit
-        : (acc.openingBalance||0) + credit - debit;
-      if (balance !== 0 || debit || credit) {
-        const balanceDr = (balance > 0 && isDebitNormal) ? balance : 0;
-        const balanceCr = (balance > 0 && !isDebitNormal) ? balance : 0;
-        result.push({ account: acc.name, code: acc.code, type: acc.type,
-                      debit, credit, balance, balanceDr, balanceCr });
-        totalDr += balanceDr;
-        totalCr += balanceCr;
-      }
+    for (const r of rows.values()) {
+      const isDebitNormal = ['asset','expense'].includes(r.type);
+      // Signed net, Dr positive
+      const net = (isDebitNormal ? r.opening : -r.opening) + r.debit - r.credit;
+      if (Math.abs(net) < 0.005 && !r.debit && !r.credit) continue;
+      const balanceDr = net > 0 ? net : 0;
+      const balanceCr = net < 0 ? -net : 0;
+      result.push({ account: r.account, code: r.code, type: r.type,
+                    debit: r.debit, credit: r.credit, balance: net, balanceDr, balanceCr });
+      totalDr += balanceDr;
+      totalCr += balanceCr;
     }
+    const order = ['asset','liability','equity','income','expense'];
+    result.sort((a,b) => (order.indexOf(a.type) - order.indexOf(b.type)) || a.account.localeCompare(b.account));
     res.json({ accounts: result, totalDr, totalCr, balanced: Math.abs(totalDr - totalCr) < 0.01 });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });

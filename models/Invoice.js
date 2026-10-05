@@ -20,7 +20,9 @@ const invoiceItemSchema = new mongoose.Schema({
   deliveredQty: { type: Number, default: 0 },
   deliveries:   [{ qty: { type: Number, required: true }, date: { type: Date, default: Date.now } }],
   // ── Returns tracking — how much of this line has already been returned via a credit note ──
-  returnedQty:  { type: Number, default: 0 }
+  returnedQty:  { type: Number, default: 0 },
+  // On credit-note lines: how much of the returned qty was put back into stock
+  restockedQty: { type: Number }
 }); // _id enabled (default) so each line item can be targeted individually for delivery
 
 const invoiceSchema = new mongoose.Schema({
@@ -59,6 +61,7 @@ const invoiceSchema = new mongoose.Schema({
   taxBreakdown: [{ taxCode: String, taxName: String, rate: Number, amount: Number, businessTax: Boolean }],
   total:             { type: Number, default: 0 },
   paid:         { type: Number, default: 0 },
+  credited:     { type: Number, default: 0 },   // total of credit notes (returns) raised against this invoice
   balance:      { type: Number, default: 0 },
   status:       { type: String, enum: ['draft','pending','paid','partial','overdue'], default: 'pending' },
   notes:        { type: String, default: '' },
@@ -75,7 +78,7 @@ invoiceSchema.index({ customer: 1 });                 // customer statement / ba
 invoiceSchema.index({ 'items.product': 1, type: 1 }); // commitments-summary aggregation (Inventory page)
 
 invoiceSchema.pre('save', function(next) {
-  this.balance = this.total - this.paid;
+  this.balance = this.total - this.paid - (this.credited || 0);
   if (this.balance <= 0.001) this.status = 'paid';
   else if (this.paid > 0) this.status = 'partial';
   next();

@@ -6,6 +6,12 @@ const Purchase = require('../models/Purchase');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 // GET active tax rates
+// Sales documents that count for tax: invoices (+) and credit notes / returns (-). Proformas never count.
+const SALES_DOCS = { type: { $in: ['invoice', 'credit_note'] } };
+const SIGN = { $cond: [{ $eq: ['$type', 'credit_note'] }, -1, 1] };
+// Net sales = what the customer owes less customer tax (handles discount and tax-inclusive pricing)
+const NET_SALES = { $multiply: [{ $subtract: ['$total', { $ifNull: ['$taxAmount', 0] }] }, SIGN] };
+
 router.get('/', requireAuth, async (req, res) => {
   try { res.json(await TaxRate.find({ active: true }).sort({ code: 1 })); }
   catch (err) { res.status(500).json({ error: err.message }); }
@@ -61,12 +67,12 @@ router.get('/report', requireAuth, requireRole('admin','manager'), async (req, r
 
     // Get all invoice tax lines grouped by taxCode
     const invByTax = await Invoice.aggregate([
-      { $match: { ...df, status: { $ne: 'draft' } } },
+      { $match: { ...df, ...SALES_DOCS } },
       { $unwind: '$items' },
       { $unwind: { path: '$items.taxLines', preserveNullAndEmptyArrays: false } },
       { $group: {
         _id: '$items.taxLines.taxCode',
-        totalAmount: { $sum: '$items.taxLines.amount' },
+        totalAmount: { $sum: { $multiply: ['$items.taxLines.amount', SIGN] } },
         taxName:     { $first: '$items.taxLines.taxName' },
         invoiceCount: { $addToSet: '$_id' }
       }},
@@ -120,7 +126,7 @@ router.get('/report', requireAuth, requireRole('admin','manager'), async (req, r
     }
 
     // Totals
-    const totalSales = (await Invoice.aggregate([{ $match: { ...df, status: { $ne: 'draft' } } }, { $group: { _id: null, v: { $sum: '$total' }, s: { $sum: '$subtotal' } } }]))[0] || { v:0, s:0 };
+    const totalSales = (await Invoice.aggregate([{ $match: { ...df, ...SALES_DOCS } }, { $group: { _id: null, v: { $sum: { $multiply: ['$total', SIGN] } }, s: { $sum: NET_SALES } } }]))[0] || { v:0, s:0 };
     const totalPurch = (await Purchase.aggregate([{ $match: { ...df, status: { $ne: 'draft' } } }, { $group: { _id: null, v: { $sum: '$total' } } }]))[0] || { v:0 };
 
     res.json({
@@ -150,16 +156,17 @@ router.get('/detail/:code', requireAuth, requireRole('admin','manager'), async (
     }
 
     const invoices = await Invoice.aggregate([
-      { $match: { ...df, status: { $ne: 'draft' }, 'items.taxLines.taxCode': code } },
+      { $match: { ...df, ...SALES_DOCS, 'items.taxLines.taxCode': code } },
       { $project: {
-        invoiceNo: 1, customerName: 1, date: 1, total: 1,
-        taxAmount: {
+        invoiceNo: 1, customerName: 1, date: 1, type: 1,
+        total: { $multiply: ['$total', SIGN] },
+        taxAmount: { $multiply: [SIGN, {
           $reduce: {
             input: { $reduce: { input: '$items', initialValue: [], in: { $concatArrays: ['$$value', '$$this.taxLines'] } } },
             initialValue: 0,
             in: { $cond: [{ $eq: ['$$this.taxCode', code] }, { $add: ['$$value', '$$this.amount'] }, '$$value'] }
           }
-        }
+        }] }
       }},
       { $sort: { date: -1 } }
     ]);
@@ -197,11 +204,11 @@ router.get('/monthly', requireAuth, requireRole('admin','manager'), async (req, 
     const taxRates = await TaxRate.find({ active: true });
 
     const invMonthly = await Invoice.aggregate([
-      { $match: { status: { $ne: 'draft' }, date: { $gte: new Date(y,0,1), $lte: new Date(y,11,31,23,59,59) } } },
+      { $match: { ...SALES_DOCS, date: { $gte: new Date(y,0,1), $lte: new Date(y,11,31,23,59,59) } } },
       { $unwind: '$items' }, { $unwind: '$items.taxLines' },
       { $group: {
         _id: { month: { $month: '$date' }, code: '$items.taxLines.taxCode' },
-        amount: { $sum: '$items.taxLines.amount' }
+        amount: { $sum: { $multiply: ['$items.taxLines.amount', SIGN] } }
       }}
     ]);
 
@@ -215,8 +222,8 @@ router.get('/monthly', requireAuth, requireRole('admin','manager'), async (req, 
     ]);
 
     const invSales = await Invoice.aggregate([
-      { $match: { status: { $ne: 'draft' }, date: { $gte: new Date(y,0,1), $lte: new Date(y,11,31,23,59,59) } } },
-      { $group: { _id: { $month: '$date' }, totalSales: { $sum: '$subtotal' }, totalGross: { $sum: '$total' } } }
+      { $match: { ...SALES_DOCS, date: { $gte: new Date(y,0,1), $lte: new Date(y,11,31,23,59,59) } } },
+      { $group: { _id: { $month: '$date' }, totalSales: { $sum: NET_SALES }, totalGross: { $sum: { $multiply: ['$total', SIGN] } } } }
     ]);
     const purTotals = await Purchase.aggregate([
       { $match: { status: { $ne: 'draft' }, date: { $gte: new Date(y,0,1), $lte: new Date(y,11,31,23,59,59) } } },

@@ -35,6 +35,7 @@ const paymentStageSchema = new mongoose.Schema({
   description: { type: String, default: '' },   // e.g. "TT Payment", "Balance Payment"
   cashAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'CashAccount' },
   bankAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'BankAccount' },
+  cheque:      { type: mongoose.Schema.Types.ObjectId, ref: 'Cheque' },   // cheque written, or third-party cheque endorsed
 }, { _id: true, timestamps: true });
 
 const purchaseSchema = new mongoose.Schema({
