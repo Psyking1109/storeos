@@ -25,7 +25,7 @@ const settingsSchema = new mongoose.Schema({
     customerSide:    { type: String,  default: 'right' },
     sectionOrder:    { type: [String], default: ['parties','meta','items','totals','payment'] },
     showTaxBreakdown:{ type: Boolean, default: true },
-    accentColor:     { type: String,  default: '#1a5f5a' },
+    accentColor:     { type: String,  default: '#204d4a' },
     fontColor:       { type: String,  default: '#12312e' }
   }
 }, { timestamps: true });

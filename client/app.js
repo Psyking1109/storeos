@@ -15,7 +15,7 @@ async function login(){
   try{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:lf.value.u,password:lf.value.p})});
     const data=await r.json();if(!r.ok){lerr.value=data.error||'Login failed';lding.value=false;return;}
     tok.value=data.token;me.value=data.user;localStorage.setItem('sos_tok',data.token);localStorage.setItem('sos_me',JSON.stringify(data.user));
-    lf.value={u:'',p:''};loadDash();loadTxRates();loadCas();loadInvTypes();loadLocs();
+    lf.value={u:'',p:''};loadDash();loadTxRates();loadCas();loadInvTypes();loadLocs();loadSavedCats();loadCats();loadCoSettings();
   }catch(e){lerr.value='Connection error. Is the server running?';}
   lding.value=false;
 }
@@ -523,7 +523,7 @@ function lineStockWarning(item){
 }
 
 // ── INVOICE LAYOUT (Task 11) ─────────────────────────────────────────────────
-const invoiceLayout=ref({logoShow:true,logoAlign:'left',supplierSide:'left',customerSide:'right',sectionOrder:['parties','meta','items','totals','payment'],showTaxBreakdown:true,accentColor:'#1a5f5a',fontColor:'#12312e'});
+const invoiceLayout=ref({logoShow:true,logoAlign:'left',supplierSide:'left',customerSide:'right',sectionOrder:['parties','meta','items','totals','payment'],showTaxBreakdown:true,accentColor:'#204d4a',fontColor:'#12312e'});
 async function saveInvoiceLayout(){try{await api('PUT','/settings',{invoiceLayout:invoiceLayout.value});}catch(e){mErr.value=e.message;}}
 let _layoutDragIdx=null;
 function layoutDragStart(idx){_layoutDragIdx=idx;}
@@ -591,7 +591,7 @@ function doPrint(){
       '.bar{position:sticky;top:0;display:flex;gap:8px;justify-content:flex-end;'+
         'padding:12px;background:#fff;border-bottom:1px solid #ddd}'+
       '.bar button{padding:8px 18px;border-radius:6px;border:none;cursor:pointer;font-size:14px;font-weight:600}'+
-      '.pr{background:#1a5f5a;color:#fff}.cl{background:#eee;color:#333}'+
+      '.pr{background:#204d4a;color:#fff}.cl{background:#eee;color:#333}'+
       '@media print{.bar{display:none}body{background:#fff}}'+
     '</style></head><body>'+
       '<div class="bar"><button class="cl" onclick="window.close()">Close</button>'+

@@ -286,9 +286,9 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
         </table></div>
       </div>
       <div class="card"><div class="ch"><h3>Cheques Due Soon</h3><button class="btn btn-o btn-sm" style="margin-left:auto" @click="pg='chq'">View All</button></div>
-        <div class="tw"><table><thead><tr><th>Cheque#</th><th>Party</th><th>Due</th><th>Amount</th></tr></thead>
+        <div class="tw"><table><thead><tr><th>Cheque#</th><th>Party</th><th>Due</th><th style="text-align:right">Amount</th></tr></thead>
           <tbody>
-            <tr v-for="c in (dash.pendingCheques||[])" :key="c._id"><td class="mn ca">{{c.chequeNo}}</td><td>{{c.party}}</td><td class="mn" :class="new Date(c.dueDate)<=new Date()?'cr':'cm'">{{fd(c.dueDate)}}</td><td class="mn fw">{{f(c.amount)}}</td></tr>
+            <tr v-for="c in (dash.pendingCheques||[])" :key="c._id"><td class="mn ca">{{c.chequeNo}}</td><td>{{c.party}}</td><td class="mn" :class="new Date(c.dueDate)<=new Date()?'cr':'cm'">{{fd(c.dueDate)}}</td><td class="mn fw tr">{{f(c.amount)}}</td></tr>
             <tr v-if="!dash.pendingCheques?.length"><td colspan="4" class="emp" style="padding:12px">None due soon</td></tr>
           </tbody>
         </table></div>
@@ -1974,9 +1974,9 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
         <div class="sc g"><div class="sl">Total Paid</div><div class="sv sm cg">{{f(suppHist.stats?.totalPaid||0)}}</div></div>
         <div class="sc r"><div class="sl">Outstanding</div><div class="sv sm cr">{{f(suppHist.stats?.totalDue||0)}}</div></div>
       </div>
-      <div class="tw"><table><thead><tr><th>PO No.</th><th>Type</th><th>Date</th><th>Total</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead>
+      <div class="tw"><table><thead><tr><th>PO No.</th><th>Type</th><th>Date</th><th style="text-align:right">Total</th><th style="text-align:right">Paid</th><th style="text-align:right">Balance</th><th>Status</th></tr></thead>
         <tbody>
-          <tr v-for="p in (suppHist.purchases||[])" :key="p._id"><td class="mn ca">{{p.purchaseNo}}</td><td><span class="badge" :class="p.purchaseType==='import'?'bimp':'bloc'">{{p.purchaseType}}</span></td><td class="mn cm">{{fd(p.date)}}</td><td class="mn fw">{{f(p.total)}}</td><td class="mn cg">{{f(p.paid)}}</td><td class="mn cr">{{f(p.balance)}}</td><td><span class="badge" :class="bs(p.status)">{{p.status}}</span></td></tr>
+          <tr v-for="p in (suppHist.purchases||[])" :key="p._id"><td class="mn ca">{{p.purchaseNo}}</td><td><span class="badge" :class="p.purchaseType==='import'?'bimp':'bloc'">{{p.purchaseType}}</span></td><td class="mn cm">{{fd(p.date)}}</td><td class="mn fw tr">{{f(p.total)}}</td><td class="mn cg tr">{{f(p.paid)}}</td><td class="mn cr tr">{{f(p.balance)}}</td><td><span class="badge" :class="bs(p.status)">{{p.status}}</span></td></tr>
           <tr v-if="!suppHist.purchases?.length"><td colspan="7" class="emp">No purchases</td></tr>
         </tbody>
       </table></div>
@@ -2588,7 +2588,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       <!-- Items Table -->
       <div v-if="nInv.items.length" style="font-size:11px;color:var(--tx3);margin-bottom:4px;text-align:right">{{nInv.items.length}} item{{nInv.items.length!==1?'s':''}} · {{nInv.items.reduce((s,i)=>s+i.qty,0).toFixed(2)}} units total</div>
       <table class="itbl">
-        <thead><tr><th>Product</th><th>Qty</th><th>Unit/Mode</th><th>Price</th><th>Taxes</th><th>Tax Amt</th><th>Line Total</th><th></th></tr></thead>
+        <thead><tr><th>Product</th><th>Qty</th><th>Unit/Mode</th><th>Price</th><th>Taxes</th><th style="text-align:right">Tax Amt</th><th style="text-align:right">Line Total</th><th></th></tr></thead>
         <tbody>
           <tr v-for="(item,i) in nInv.items" :key="i">
             <td style="min-width:150px"><input v-model="item.productName" class="fc" placeholder="Item name"/></td>
@@ -2611,8 +2611,8 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
                 </select>
               </div>
             </td>
-            <td style="width:80px" class="mn cm">{{f(item.taxAmount||0)}}</td>
-            <td style="width:90px" class="mn ca fw">{{f(item.lineTotal||0)}}</td>
+            <td style="width:80px" class="mn cm tr">{{f(item.taxAmount||0)}}</td>
+            <td style="width:90px" class="mn ca fw tr">{{f(item.lineTotal||0)}}</td>
             <td style="width:35px"><button class="btn btn-d btn-sm" @click="nInv.items.splice(i,1);calcInv()">×</button></td>
           </tr>
           <tr v-if="!nInv.items.length"><td colspan="8" style="text-align:center;color:var(--tx3);padding:14px;font-size:12px">Search or add items above</td></tr>
@@ -2708,8 +2708,8 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       <div style="overflow-x:auto">
         <table class="itbl">
           <thead>
-            <tr v-if="nPO.purchaseType==='import'"><th>Product</th><th>Qty</th><th>Unit</th><th>Cost ({{nPO.currency||'USD'}})</th><th>Cost (LKR)</th><th>Tax Lines</th><th>Tax</th><th>Line (LKR)</th><th></th></tr>
-            <tr v-else><th>Product</th><th>Qty</th><th>Unit</th><th>Unit Cost</th><th>Tax Lines</th><th>Tax Amt</th><th>Line Total</th><th></th></tr>
+            <tr v-if="nPO.purchaseType==='import'"><th>Product</th><th>Qty</th><th>Unit</th><th>Cost ({{nPO.currency||'USD'}})</th><th style="text-align:right">Cost (LKR)</th><th>Tax Lines</th><th style="text-align:right">Tax</th><th style="text-align:right">Line (LKR)</th><th></th></tr>
+            <tr v-else><th>Product</th><th>Qty</th><th>Unit</th><th>Unit Cost</th><th>Tax Lines</th><th style="text-align:right">Tax Amt</th><th style="text-align:right">Line Total</th><th></th></tr>
           </thead>
           <tbody>
             <tr v-for="(item,i) in nPO.items" :key="i">
@@ -2718,7 +2718,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
               <td style="width:55px"><input v-model="item.unit" class="fc" placeholder="pcs"/></td>
               <template v-if="nPO.purchaseType==='import'">
                 <td style="width:110px"><input v-model="item.unitCostForeign" type="number" step="0.01" class="fc" @input="calcPO()" @blur="item.unitCostForeign=+item.unitCostForeign||0" placeholder="0"/></td>
-                <td style="width:90px"><div class="fc" style="background:var(--sur2);font-family:var(--fm);font-size:12px;padding:4px 6px">{{f((item.unitCostForeign||0)*(nPO.exchangeRate||1))}}</div></td>
+                <td style="width:90px"><div class="fc" style="background:var(--sur2);font-family:var(--fm);font-size:12px;padding:4px 6px;text-align:right">{{f((item.unitCostForeign||0)*(nPO.exchangeRate||1))}}</div></td>
               </template>
               <template v-else>
                 <td style="width:105px"><input v-model="item.unitCost" type="number" step="0.01" class="fc" @input="calcPO()" @blur="item.unitCost=+item.unitCost||0"/></td>
@@ -2732,8 +2732,8 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
                   </select>
                 </div>
               </td>
-              <td style="width:75px" class="mn cm">{{f(item.taxAmount||0)}}</td>
-              <td style="width:90px" class="mn ca fw">{{f(item.lineTotal||0)}}</td>
+              <td style="width:75px" class="mn cm tr">{{f(item.taxAmount||0)}}</td>
+              <td style="width:90px" class="mn ca fw tr">{{f(item.lineTotal||0)}}</td>
               <td style="width:35px"><button class="btn btn-d btn-sm" @click="nPO.items.splice(i,1);calcPO()">×</button></td>
             </tr>
           </tbody>
@@ -4072,13 +4072,13 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <div style="font-size:11px;color:var(--tx2);margin-bottom:6px;font-weight:600">Preview (first {{csvPreview.length}} rows)</div>
           <div class="card" style="padding:0;overflow:auto">
             <table style="font-size:11px">
-              <thead><tr><th>Date</th><th>Note</th><th>Counterparty</th><th>Amount</th><th>Dir.</th></tr></thead>
+              <thead><tr><th>Date</th><th>Note</th><th>Counterparty</th><th style="text-align:right">Amount</th><th>Dir.</th></tr></thead>
               <tbody>
                 <tr v-for="(row,i) in csvPreview" :key="i">
                   <td class="mn">{{row.date}}</td>
                   <td>{{row.note}}</td>
                   <td class="cm">{{row.counterparty||'—'}}</td>
-                  <td class="mn fw" :class="row.direction==='credit'?'cg':'cr'">{{row.direction==='credit'?'+':'-'}}{{f(Math.abs(row.amount))}}</td>
+                  <td class="mn fw tr" :class="row.direction==='credit'?'cg':'cr'">{{row.direction==='credit'?'+':'-'}}{{f(Math.abs(row.amount))}}</td>
                   <td><span class="badge" :class="row.direction==='credit'?'bin':'bout'">{{row.direction==='credit'?'Money in':'Money out'}}</span></td>
                 </tr>
               </tbody>
