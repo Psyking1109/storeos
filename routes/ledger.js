@@ -100,6 +100,7 @@ router.get('/daily-cash-report', requireAuth, requireRole('admin','manager'), as
     //                  the bank, paid by cheque), cash expenses, cash supplier payments, transfers out
     // Credit − Debit = cash in hand at the end of the day.
     const cashNames = cashAccounts.map(a => a.name);
+    const transfersToday = await CashTransfer.find({ date: df });
 
     // Opening = today's balance minus every cash movement from this day onward (works for past dates)
     const fromDay = await Ledger.aggregate([

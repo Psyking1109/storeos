@@ -90,9 +90,16 @@ app.use('/api/ledger',          requireAuth, requirePermission('ledger'),       
 app.use('/api/ledger-accounts',   requireAuth, requirePermission('chartOfAccounts'), require('./routes/ledgeraccounts'));
 app.use('/api/reconciliation',    requireAuth, requirePermission('banking'),        require('./routes/reconciliation'));
 
-// SPA fallback — serve index.html for all non-API routes
+// SPA fallback — serve index.html for all non-API routes.
+// app.js is cached for a day, so tag its URL with a hash of its contents: after a deploy the
+// browser fetches the matching app.js instead of pairing the new page with yesterday's script.
+const appJsVersion = require('crypto').createHash('md5')
+  .update(fs.readFileSync(path.join(__dirname, 'client/app.js'))).digest('hex').slice(0, 10);
+const indexHtml = fs.readFileSync(path.join(__dirname, 'client/index.html'), 'utf8')
+  .replace('src="/app.js"', `src="/app.js?v=${appJsVersion}"`);
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'client/index.html'));
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('html').send(indexHtml);
 });
 
 const PORT = process.env.PORT || 3000;
