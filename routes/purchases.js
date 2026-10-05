@@ -375,8 +375,9 @@ router.put('/:id', async (req, res) => {
     po.landingTaxTotal = 0; // extra-cost taxes are not supported on the server
     await po.save();
 
-    // Re-post the purchase's own rows; payment rows (narration 'stage:<id>') stay
-    await Ledger.deleteMany({ sourceType: 'purchase', sourceId: po._id, narration: { $not: /^stage:/ } });
+    // Re-post the purchase's own rows; payment rows stay: tagged 'stage:<id>' since Oct 5,
+    // and older ones untagged but described "Payment PO …"
+    await Ledger.deleteMany({ sourceType: 'purchase', sourceId: po._id, narration: { $not: /^stage:/ }, description: { $not: /^Payment/ } });
     await postPurchaseLedger(po, totals);
     if (po.supplier && po.total !== oldTotal) await Supplier.findByIdAndUpdate(po.supplier, { $inc: { balance: po.total - oldTotal } });
 
