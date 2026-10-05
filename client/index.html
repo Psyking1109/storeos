@@ -480,7 +480,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
   </div>
   <div class="content">
     <div class="card"><div class="tw"><table>
-      <thead><tr><th>No.</th><th>Type</th><th>Customer</th><th>Date</th><th style="text-align:right">Subtotal</th><th style="text-align:right">VAT</th><th style="text-align:right">Tax</th><th style="text-align:right">Total</th><th style="text-align:right">Paid</th><th style="text-align:right">Balance</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>No.</th><th>Type</th><th>Customer</th><th>Date</th><th style="text-align:right">Subtotal</th><th style="text-align:right">Tax</th><th style="text-align:right">Total</th><th style="text-align:right">Paid</th><th style="text-align:right">Balance</th><th>Status</th><th></th></tr></thead>
       <tbody>
         <tr v-for="i in invs" :key="i._id">
           <td>
@@ -493,7 +493,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           </td>
           <td class="mn cm" style="font-size:11px">{{i.invoiceTypeName||'—'}}</td>
           <td>{{i.customerName}}</td><td class="mn cm">{{fd(i.date)}}</td>
-          <td class="mn" style="text-align:right">{{f(i.subtotal)}}</td><td class="mn co" style="text-align:right">{{f(i.vatAmount||0)}}</td><td class="mn" style="text-align:right">{{f(i.taxAmount||0)}}</td>
+          <td class="mn" style="text-align:right">{{f(invNet(i))}}</td><td class="mn" style="text-align:right">{{f(i.taxAmount||0)}}</td>
           <td class="mn fw" style="text-align:right">{{f(i.total)}}</td><td class="mn cg" style="text-align:right">{{f(i.paid)}}</td><td class="mn cr" style="text-align:right">{{f(i.balance)}}</td>
           <td><span class="badge" :class="bs(i.status)">{{i.status}}</span></td>
           <td><div class="fx g6">
@@ -504,7 +504,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
             <button class="btn btn-d btn-sm" @click="delInv(i._id)">Del</button>
           </div></td>
         </tr>
-        <tr v-if="!invs.length"><td colspan="12" class="emp"><div class="eic">{{pg==='pro'?'📝':pg==='undel'?'🚚':'📋'}}</div><div>{{pg==='pro'?'No proformas':pg==='undel'?'No undelivered invoices':'No invoices'}}</div></td></tr>
+        <tr v-if="!invs.length"><td colspan="11" class="emp"><div class="eic">{{pg==='pro'?'📝':pg==='undel'?'🚚':'📋'}}</div><div>{{pg==='pro'?'No proformas':pg==='undel'?'No undelivered invoices':'No invoices'}}</div></td></tr>
       </tbody>
     </table></div></div>
   </div>
@@ -3224,7 +3224,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
         <div style="font-size:12px;color:var(--tx3)">Mode: <strong>{{invDet.paymentMode}}</strong><span v-if="invDet.chequeNo"> · Cheque #{{invDet.chequeNo}}</span></div>
       </div>
       <div class="tb">
-        <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px"><span style="color:var(--tx2)">Subtotal</span><span style="font-family:var(--fm)">{{f(invDet.subtotal||0)}}</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px"><span style="color:var(--tx2)">Subtotal</span><span style="font-family:var(--fm)">{{f(invNet(invDet))}}</span></div>
         <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px"><span style="color:var(--tx2)">Tax</span><span style="font-family:var(--fm);color:var(--org)">{{f(invDet.taxAmount||0)}}</span></div>
         <div v-if="invDet.discount" style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px"><span style="color:var(--tx2)">Discount</span><span style="font-family:var(--fm);color:var(--red)">({{f(invDet.discount)}})</span></div>
         <div style="display:flex;justify-content:space-between;padding-top:7px;border-top:1px solid var(--brd);font-weight:700"><span>Total</span><span style="font-family:var(--fm);font-size:18px;color:var(--acc)">{{f(invDet.total||0)}}</span></div>
@@ -3508,7 +3508,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
                   <tr style="background:#e8eeec">
                     <td style="padding:5px 10px;width:46%"></td>
                     <td style="padding:5px 10px;border:1px solid #c2ccca">Total Value of Supply</td>
-                    <td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;border:1px solid #c2ccca;width:19%">{{f(printInv.subtotal)}}</td>
+                    <td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;border:1px solid #c2ccca;width:19%">{{f(invNet(printInv))}}</td>
                   </tr>
                   <template v-if="invoiceLayout.showTaxBreakdown">
                     <tr v-for="tl in printTaxRows" :key="tl.taxCode" style="background:#e8eeec">
@@ -3596,7 +3596,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
                   <span style="font-family:monospace;color:#333">{{f(tl.amount)}}</span>
                 </div>
               </div>
-              <div style="display:flex;justify-content:space-between;padding:6px 12px;font-size:13px"><span style="color:#666">Subtotal</span><span style="font-family:monospace">{{f(printInv.subtotal||0)}}</span></div>
+              <div style="display:flex;justify-content:space-between;padding:6px 12px;font-size:13px"><span style="color:#666">Subtotal</span><span style="font-family:monospace">{{f(invNet(printInv))}}</span></div>
               <div v-if="printInv.taxAmount" style="display:flex;justify-content:space-between;padding:6px 12px;font-size:13px"><span style="color:#666">Tax</span><span style="font-family:monospace">{{f(printInv.taxAmount||0)}}</span></div>
               <div v-if="printInv.discount" style="display:flex;justify-content:space-between;padding:6px 12px;font-size:13px"><span style="color:#666">Discount</span><span style="font-family:monospace;color:#e05252">({{f(printInv.discount)}})</span></div>
               <div style="display:flex;justify-content:space-between;padding:12px;font-weight:800;font-size:16px;border-radius:6px;margin-top:4px" :style="'background:'+printColor+'15;color:'+printColor">

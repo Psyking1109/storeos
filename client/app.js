@@ -786,6 +786,8 @@ function payAccountErr(mode,cashAcc,bankAcc,chequeNo,dir){
   if(!['cash','bank','cheque'].includes(mode||'cash'))return 'Choose cash, bank or cheque';
   return '';
 }
+// Invoice subtotal before customer tax: tax-inclusive invoices store the tax-inclusive price in subtotal
+const invNet=inv=>inv?(inv.taxInclusive?(inv.subtotal||0)-(inv.taxAmount||0):(inv.subtotal||0)):0;
 const f=n=>Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fd=d=>d?new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'—';
 const fdL=d=>new Date(d).toLocaleDateString('en-GB',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
@@ -1646,7 +1648,7 @@ payDoc,payAmt,payMode,payCashAcc,payBankAcc,payChqNo,payDate,
 iSrch,iSrchRes,iSrchLoading,poSrch,poSrchRes,invNoPreview,nInv,nPO,
 mProd,mStk,mCust,mSupp,mSuppH,mCA,mXfer,mExp,mPay,mTxRate,mInvType,mLoc,mUser,mBAcc,mBTx,mStmt,mChq,mChqSts,mInv,mPO,
 eProd,eStk,eCust,eSupp,eCA,eXfer,eExp,eTxRate,eInvType,eLoc,eUser,eBAcc,eBTx,eChq,chqStsData,PERM_GROUPS,applyRoleDefaults,
-tdate,todayStr,lowStock,pendChq,f,fd,fdL,bp,bs,chqSC,chqDue,
+tdate,todayStr,lowStock,pendChq,f,invNet,fd,fdL,bp,bs,chqSC,chqDue,
 openProd,addProdLoc,saveProd,delProd,openStk,saveStkAdj,saveLocStk,
 previewInvNo,onCustChange,srchProds,addFirstProd,addProdToInv,addTaxToLine,calcInv,openNewInv,saveInv,delInv,
 srchProdsPO,addProdToPO,addTaxToPOLine,addTaxToLC,calcPO,openNewPO,savePO,
