@@ -8,6 +8,18 @@ const Ledger = require('../models/Ledger');
 
 // ── BANK ACCOUNTS ──────────────────────────────────────────────
 
+// Opening balance: Dr Bank / Cr Opening Balance Equity (reversed for an overdraft)
+async function postOpening(acc) {
+  const ob = Number(acc.openingBalance) || 0;
+  if (!ob) return;
+  const base = { date: acc.createdAt || new Date(), description: `Opening balance — ${acc.name}`, reference: '',
+    sourceType: 'bank', sourceId: acc._id, narration: 'opening' };
+  await Ledger.insertMany([
+    { ...base, account: acc.name, accountType: 'bank', debit: ob > 0 ? ob : 0, credit: ob < 0 ? -ob : 0 },
+    { ...base, account: 'Opening Balance Equity', accountType: 'equity', debit: ob < 0 ? -ob : 0, credit: ob > 0 ? ob : 0 },
+  ]);
+}
+
 router.get('/accounts', async (req, res) => {
   try {
     const accounts = await BankAccount.find({ active: true }).sort({ name: 1 });
@@ -20,21 +32,29 @@ router.post('/accounts', async (req, res) => {
     const acc = new BankAccount(req.body);
     acc.currentBalance = acc.openingBalance;
     await acc.save();
-    // Ledger entry for opening balance
-    if (acc.openingBalance) {
-      await Ledger.create({
-        date: new Date(), account: acc.name, accountType: 'bank',
-        debit: acc.openingBalance, credit: 0,
-        description: `Opening balance — ${acc.name}`, reference: '', sourceType: 'bank', sourceId: acc._id
-      });
-    }
+    await postOpening(acc);
     res.status(201).json(acc);
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
 router.put('/accounts/:id', async (req, res) => {
   try {
-    const acc = await BankAccount.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const acc = await BankAccount.findById(req.params.id);
+    if (!acc) return res.status(404).json({ error: 'Not found' });
+    const body = { ...req.body };
+    delete body.currentBalance; // moves only through transactions
+    const oldName = acc.name, oldOpening = acc.openingBalance || 0;
+    Object.assign(acc, body);
+    const newOpening = Number(acc.openingBalance) || 0;
+    acc.currentBalance += newOpening - oldOpening;
+    await acc.save();
+    // The ledger identifies bank accounts by name: keep their history attached
+    if (acc.name !== oldName)
+      await Ledger.updateMany({ account: oldName, accountType: 'bank' }, { $set: { account: acc.name } });
+    if (newOpening !== oldOpening) {
+      await Ledger.deleteMany({ sourceType: 'bank', sourceId: acc._id, narration: { $in: ['opening', ''] }, description: /^Opening balance/ });
+      await postOpening(acc);
+    }
     res.json(acc);
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
@@ -144,26 +164,35 @@ router.delete('/transactions/:id', async (req, res) => {
 
 // ── STATEMENT per account ────────────────────────────────────────
 
+// Statement as the books see it: every ledger row on this bank account.
+// Debit = money in, Credit = money out (the bank's own statement uses the opposite words).
 router.get('/accounts/:id/statement', async (req, res) => {
   try {
     const { from, to } = req.query;
     const acc = await BankAccount.findById(req.params.id);
     if (!acc) return res.status(404).json({ error: 'Not found' });
-    let query = { account: req.params.id };
-    if (from || to) {
-      query.date = {};
-      if (from) query.date.$gte = new Date(from);
-      if (to) { const d = new Date(to); d.setHours(23,59,59); query.date.$lte = d; }
+    const q = { account: acc.name, accountType: 'bank' };
+    let opening = 0;
+    if (from) {
+      const before = await Ledger.aggregate([
+        { $match: { ...q, date: { $lt: new Date(from) } } },
+        { $group: { _id: null, dr: { $sum: '$debit' }, cr: { $sum: '$credit' } } },
+      ]);
+      opening = before.length ? before[0].dr - before[0].cr : 0;
     }
-    const txs = await BankTx.find(query).sort({ date: 1, createdAt: 1 });
-    let bal = acc.openingBalance;
-    const rows = txs.map(t => {
-      if (t.type === 'deposit')    bal += t.amount;
-      if (t.type === 'withdrawal') bal -= t.amount;
-      if (t.type === 'transfer' && t.account.toString() === req.params.id) bal -= t.amount;
-      return { ...t.toObject(), runningBalance: bal };
+    if (from || to) {
+      q.date = {};
+      if (from) q.date.$gte = new Date(from);
+      if (to) { const d = new Date(to); d.setHours(23,59,59); q.date.$lte = d; }
+    }
+    const entries = await Ledger.find(q).sort({ date: 1, createdAt: 1 }).lean();
+    let bal = opening;
+    const rows = entries.map(e => {
+      bal += (e.debit || 0) - (e.credit || 0);
+      return { _id: e._id, date: e.date, description: e.description, reference: e.reference, sourceType: e.sourceType,
+               debit: e.debit || 0, credit: e.credit || 0, runningBalance: bal };
     });
-    res.json({ account: acc, rows });
+    res.json({ account: acc, opening, rows, closing: bal, bookBalance: acc.currentBalance });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

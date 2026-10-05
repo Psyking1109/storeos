@@ -94,140 +94,95 @@ router.get('/daily-cash-report', requireAuth, requireRole('admin','manager'), as
 
     const cashAccounts = await CashAccount.find({ active: true });
 
-    // ── Compute TRUE opening balance for each account ────────────────────────
-    // Opening = currentBalance - net of today's transactions on each account
-    // Today's credits to each account (invoices paid cash into it)
-    const todayCashCredits = {};
-    const todayCashDebits  = {};
+    // Everything below follows PHYSICAL CASH only:
+    //   Credit (In)  = opening cash, today's sales, cash collected on earlier invoices, transfers in
+    //   Debit  (Out) = the part of today's sales that did NOT arrive as cash (credit sales, paid into
+    //                  the bank, paid by cheque), cash expenses, cash supplier payments, transfers out
+    // Credit − Debit = cash in hand at the end of the day.
+    const cashNames = cashAccounts.map(a => a.name);
 
-    // Invoice payments received into cash accounts today
-    const invPaid = await Invoice.find({ date: df, paymentMode: 'cash', paid: { $gt: 0 }, cashAccount: { $exists: true, $ne: null } }).select('cashAccount cashAccountName paid');
-    for (const inv of invPaid) {
-      const id = inv.cashAccount?.toString();
-      if (id) todayCashCredits[id] = (todayCashCredits[id] || 0) + inv.paid;
-    }
-
-    // Expenses debited from cash accounts today
-    const todayExps = await Expense.find({ date: df, paymentMethod: 'cash', cashAccount: { $exists: true, $ne: null } }).select('cashAccount amount');
-    for (const exp of todayExps) {
-      const id = exp.cashAccount?.toString();
-      if (id) todayCashDebits[id] = (todayCashDebits[id] || 0) + exp.amount;
-    }
-
-    // Cash transfers today
-    const transfersToday = await CashTransfer.find({ date: df });
-    for (const t of transfersToday) {
-      if (t.fromType === 'cash') {
-        const id = t.fromAccount?.toString();
-        if (id) todayCashDebits[id] = (todayCashDebits[id] || 0) + t.amount;
-      }
-      if (t.toType === 'cash') {
-        const id = t.toAccount?.toString();
-        if (id) todayCashCredits[id] = (todayCashCredits[id] || 0) + t.amount;
-      }
-    }
-
-    // Opening balance = currentBalance - today's CASH movements
-    // Only deduct invoice receipts and expense payments (NOT journal entries)
-    // Journal entries are shown separately as expense rows, so don't double-count them
-    let totalOpeningBalance = 0;
+    // Opening = today's balance minus every cash movement from this day onward (works for past dates)
+    const fromDay = await Ledger.aggregate([
+      { $match: { accountType: 'cash', account: { $in: cashNames }, date: { $gte: dayStart } } },
+      { $group: { _id: { account: '$account', later: { $gt: ['$date', dayEnd] } }, net: { $sum: { $subtract: ['$debit', '$credit'] } } } },
+    ]);
+    const netOf = (name, later) => fromDay.filter(r => r._id.account === name && r._id.later === later).reduce((s, r) => s + r.net, 0);
+    let totalOpeningBalance = 0, totalClosing = 0;
     const accountOpenings = [];
     for (const acc of cashAccounts) {
-      const id = acc._id.toString();
-      // todayNet = cash actually received (invoices) - cash actually paid (expense model only)
-      const todayNet = (todayCashCredits[id]||0) - (todayCashDebits[id]||0);
-      const openingBalance = acc.currentBalance - todayNet;
-      totalOpeningBalance += openingBalance;
-      accountOpenings.push({ ...acc.toObject(), openingBalance });
+      const closing = acc.currentBalance - netOf(acc.name, true);
+      const openingBalance = closing - netOf(acc.name, false);
+      totalOpeningBalance += openingBalance; totalClosing += closing;
+      accountOpenings.push({ ...acc.toObject(), openingBalance, closingBalance: closing });
     }
 
-    // ── Build report rows ─────────────────────────────────────────────────────
     const rows = [];
     let totalDebit = 0, totalCredit = 0;
+    const credit = (r) => { rows.push({ ...r, debit: null }); totalCredit += r.credit; };
+    const debit  = (r) => { rows.push({ ...r, credit: null }); totalDebit += r.debit; };
 
-    // Opening balance (Credit)
-    rows.push({ type: 'opening', label: 'Opening Cash Balance', credit: totalOpeningBalance, debit: null });
-    totalCredit += totalOpeningBalance;
+    credit({ type: 'opening', label: 'Opening Cash Balance', credit: totalOpeningBalance });
 
-    // Sales: TOTAL sales → Credit (all money earned)
-    //         Credit sales portion (unpaid) → Debit (A/R — not yet in hand)
-    // Net effect: only cash actually received remains in Credit balance
-    const todayInvoices = await Invoice.find({ date: df, status: { $ne: 'draft' } })
-      .populate('customer','name').select('invoiceNo customerName total paid balance status invoiceTypeName');
-    
-    const totalSales = todayInvoices.reduce((s,i)=>s+i.total,0);
-    const totalPaid  = todayInvoices.reduce((s,i)=>s+i.paid,0);
-    const totalCredit_sales = todayInvoices.reduce((s,i)=>s+(i.balance||0),0);
+    // Today's sales (invoices only — proformas and credit notes are not sales)
+    const todayInvoices = await Invoice.find({ date: df, type: 'invoice' })
+      .select('invoiceNo customerName total paid balance status invoiceTypeName');
+    const todayIds = todayInvoices.map(i => i._id);
+    const invItem = i => ({ ref: i.invoiceNo, name: i.customerName || 'Walk-in', amount: i.total, paid: i.paid, balance: i.balance || 0, status: i.status });
+    const totalSales = todayInvoices.reduce((s, i) => s + i.total, 0);
+    if (totalSales > 0)
+      credit({ type: 'sales', label: `Total Sales (${todayInvoices.length} invoices)`, credit: totalSales, items: todayInvoices.map(invItem) });
 
-    if (totalSales > 0) {
-      rows.push({
-        type: 'sales', label: `Total Sales (${todayInvoices.length} invoices)`,
-        credit: totalSales, debit: null,
-        items: todayInvoices.map(i=>({ ref:i.invoiceNo, name:i.customerName||'Walk-in', amount:i.total, paid:i.paid, balance:i.balance||0, status:i.status }))
-      });
-      totalCredit += totalSales;
-    }
-    if (totalCredit_sales > 0) {
-      const creditInvoices = todayInvoices.filter(i=>(i.balance||0)>0);
-      rows.push({
-        type: 'receivable', label: `Credit Sales — Not Yet Received (${creditInvoices.length})`,
-        debit: totalCredit_sales, credit: null,
-        items: creditInvoices.map(i=>({ ref:i.invoiceNo, name:i.customerName||'Walk-in', amount:i.total, paid:i.paid, balance:i.balance||0, status:i.status }))
-      });
-      totalDebit += totalCredit_sales;
-    }
+    const creditInvoices = todayInvoices.filter(i => (i.balance || 0) > 0.009);
+    const creditSales = creditInvoices.reduce((s, i) => s + i.balance, 0);
+    if (creditSales > 0)
+      debit({ type: 'receivable', label: `Credit Sales — Not Yet Received (${creditInvoices.length})`, debit: creditSales, items: creditInvoices.map(invItem) });
 
-    // Bank inwards (Credit)
-    const bankInwards = await Invoice.aggregate([
-      { $match: { date: df, paymentMode: 'bank', paid: { $gt: 0 } } },
-      { $group: { _id: '$bankAccount', name: { $first: '$bankAccountName' }, total: { $sum: '$paid' } } }
-    ]);
-    for (const bi of bankInwards) {
-      if (bi.total > 0) {
-        rows.push({ type: 'bank_inward', label: `Bank Inwards — ${bi.name || 'Bank'}`, credit: bi.total, debit: null });
-        totalCredit += bi.total;
-      }
-    }
+    // Receipts posted today on invoices, by where the money went
+    const receipts = await Ledger.find({ sourceType: 'invoice', date: df, debit: { $gt: 0 }, accountType: { $in: ['bank', 'cheque', 'cash'] } }).lean();
+    const invNo = Object.fromEntries(todayInvoices.map(i => [String(i._id), i]));
+    const isToday = r => !!invNo[String(r.sourceId)];
+    const recItem = r => ({ ref: r.reference || '—', name: invNo[String(r.sourceId)]?.customerName || r.description, amount: r.debit });
 
-    // Cash transfers IN today (Credit)
+    // Today's sales paid into the bank: in the books, not in the till
+    const bankByAcc = {};
+    for (const r of receipts.filter(r => r.accountType === 'bank' && isToday(r)))
+      (bankByAcc[r.account] = bankByAcc[r.account] || []).push(r);
+    for (const [name, list] of Object.entries(bankByAcc))
+      debit({ type: 'bank_inward', label: `Bank Inwards — ${name} (not cash)`, debit: list.reduce((s, r) => s + r.debit, 0), items: list.map(recItem) });
+
+    // Today's sales paid by cheque: in hand as a cheque, not cash (shown again below as undeposited)
+    const chqRec = receipts.filter(r => r.accountType === 'cheque' && isToday(r));
+    if (chqRec.length)
+      debit({ type: 'cheque_inward', label: `Paid by Cheque (${chqRec.length})`, debit: chqRec.reduce((s, r) => s + r.debit, 0), items: chqRec.map(recItem) });
+
+    // Cash collected today against earlier invoices
+    const collected = receipts.filter(r => r.accountType === 'cash' && !isToday(r));
+    if (collected.length)
+      credit({ type: 'collection', label: `Cash Collected on Earlier Invoices (${collected.length})`, credit: collected.reduce((s, r) => s + r.debit, 0), items: collected.map(r => ({ ref: r.reference || '—', name: r.description, amount: r.debit })) });
+
+    // Cash transfers IN today
     for (const t of transfersToday) {
-      if (t.toType === 'cash') {
-        rows.push({ type: 'transfer_in', label: `Transfer In — ${t.fromAccountName} → ${t.toAccountName}`, credit: t.amount, debit: null });
-        totalCredit += t.amount;
-      }
+      if (t.toType === 'cash')
+        credit({ type: 'transfer_in', label: `Transfer In — ${t.fromAccountName} → ${t.toAccountName}`, credit: t.amount });
     }
 
-    // Expenses — group by ledger account with full details
-    const todayExpFull = await Expense.find({ date: df }).sort({ amount: -1 });
+    // Expenses paid in cash — grouped by expense account (bank/cheque expenses never touched the till)
+    const todayExpFull = await Expense.find({ date: df, paymentMethod: 'cash' }).sort({ amount: -1 });
     const expByAccount = {};
     for (const exp of todayExpFull) {
       const accName = exp.ledgerAccountName || exp.category || 'General Expenses';
       if (!expByAccount[accName]) expByAccount[accName] = { total: 0, items: [] };
       expByAccount[accName].total += exp.amount;
-      expByAccount[accName].items.push({
-        ref: exp.reference || '—',
-        description: exp.description,
-        amount: exp.amount,
-        vendor: exp.vendor || '',
-        paymentMethod: exp.paymentMethod
-      });
+      expByAccount[accName].items.push({ ref: exp.reference || '—', description: exp.description, amount: exp.amount, vendor: exp.vendor || '', paymentMethod: exp.paymentMethod });
     }
-    for (const [accName, data] of Object.entries(expByAccount)) {
-      rows.push({ type:'expense', label:accName, debit:data.total, credit:null, count:data.items.length, items:data.items });
-      totalDebit += data.total;
-    }
+    for (const [accName, data] of Object.entries(expByAccount))
+      debit({ type: 'expense', label: accName, debit: data.total, count: data.items.length, items: data.items });
 
-    // Purchase payments with details
-    const purchasesFull = await Purchase.find({ date: df, paid: { $gt: 0 } }).select('poNumber supplierName paid');
-    if (purchasesFull.length > 0) {
-      const purTotal = purchasesFull.reduce((s,p)=>s+p.paid,0);
-      rows.push({
-        type:'purchase', label:`Purchase Payments (${purchasesFull.length})`,
-        debit:purTotal, credit:null,
-        items: purchasesFull.map(p=>({ ref:p.poNumber||'—', name:p.supplierName||'Supplier', amount:p.paid }))
-      });
-      totalDebit += purTotal;
-    }
+    // Supplier payments made in cash today (by payment date, not PO date)
+    const purCash = await Ledger.find({ sourceType: 'purchase', date: df, accountType: 'cash', credit: { $gt: 0 } }).lean();
+    if (purCash.length)
+      debit({ type: 'purchase', label: `Purchase Payments in Cash (${purCash.length})`, debit: purCash.reduce((s, r) => s + r.credit, 0),
+        items: purCash.map(r => ({ ref: r.reference || '—', name: r.description, amount: r.credit })) });
 
     // (purchase payments now included in expense block above)
 
@@ -283,8 +238,8 @@ router.get('/daily-cash-report', requireAuth, requireRole('admin','manager'), as
     const undepositedTotal = undepositedCheques.reduce((s,c) => s + c.amount, 0);
     const bankAccounts = await BankAccount.find({ active: true }).select('name currentBalance');
 
-    // Cash in Hand = sum of actual account balances (ground truth from DB)
-    const cashInHand = cashAccounts.reduce((s,a) => s + a.currentBalance, 0);
+    // Cash in hand at the end of the chosen day, per the cash accounts
+    const cashInHand = totalClosing;
 
     res.json({
       date,
@@ -294,7 +249,8 @@ router.get('/daily-cash-report', requireAuth, requireRole('admin','manager'), as
       cashInHand,
       cashInHandWithCheques: cashInHand + undepositedTotal,
       undepositedCheques: { count: undepositedCheques.length, total: undepositedTotal, items: undepositedCheques },
-      cashAccounts: cashAccounts.map(a => ({ name: a.name, balance: a.currentBalance })),
+      cashAccounts: accountOpenings.map(a => ({ name: a.name, opening: a.openingBalance, balance: a.closingBalance })),
+      reportDifference: (totalCredit - totalDebit) - totalClosing,
       bankAccounts: bankAccounts.map(a => ({ name: a.name, balance: a.currentBalance }))
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
