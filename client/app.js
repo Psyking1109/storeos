@@ -1,7 +1,9 @@
 document.addEventListener('DOMContentLoaded',function(){
 const {createApp,ref,computed,watch,onMounted}=Vue;
 createApp({setup(){
-const today=new Date().toISOString().slice(0,10);
+// Local calendar date (toISOString alone is UTC: before 05:30 in Sri Lanka it would give yesterday)
+const ymd=dt=>new Date(dt.getTime()-dt.getTimezoneOffset()*60000).toISOString().slice(0,10);
+const today=ymd(new Date());
 const d=new Date();
 const todayStr=String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
 const tok=ref(localStorage.getItem('sos_tok')||'');
@@ -64,9 +66,9 @@ const cashLedgerAcc=ref(null);const cashLedRows=ref([]);const cashLedFr=ref('');
 const baccs=ref([]);const btxs=ref([]);const btab=ref('accounts');const btf=ref({acc:'',typ:'',fr:'',to:''});
 const chqs=ref([]);const chqf=ref({dir:'',sts:''});
 const ledDays=ref([]);const trial=ref({rows:[],grandDebit:0,grandCredit:0});
-const ledV=ref('daily');const ledFr=ref(new Date(d.getFullYear(),d.getMonth(),1).toISOString().slice(0,10));
+const ledV=ref('daily');const ledFr=ref(ymd(new Date(d.getFullYear(),d.getMonth(),1)));
 const ledTo=ref(today);const ledAccList=ref([]);const ledAcc=ref('');const accLedRows=ref([]);
-const txFr=ref(new Date(d.getFullYear(),d.getMonth(),1).toISOString().slice(0,10));const txTo=ref(today);
+const txFr=ref(ymd(new Date(d.getFullYear(),d.getMonth(),1)));const txTo=ref(today);
 const mTaxDetail=ref(false);const taxDetailData=ref({});
 const txYear=ref(d.getFullYear());const txYears=[0,1,2,3,4].map(i=>d.getFullYear()-i);const curYear=d.getFullYear();const curMonth=d.getMonth()+1;
 const txMonthly=ref({months:[],totals:null});
@@ -484,8 +486,59 @@ async function viewLedgerAcc(id){
     mLedgerAccDetail.value=true;
   }catch(e){alert(e.message);}
 }
+// ── TRIAL BALANCE: as-at date, books check, drill-down, export ──
+const tbTo=ref(today);const tbHealth=ref(null);const tbHealthOpen=ref(false);
+const mTbDrill=ref(false);const tbDrill=ref({account:'',rows:[],opening:0});
+async function loadTbHealth(){try{tbHealth.value=await api('GET','/ledger/health');}catch(e){tbHealth.value={error:e.message};}}
+// Open the document behind a ledger row (invoices incl. credit notes, purchases)
+async function openLedgerSource(x){
+  try{
+    if(x.sourceType==='invoice'){openInvDetail(await api('GET','/invoices/'+x.sourceId));return true;}
+    if(x.sourceType==='purchase'){openPODetail(await api('GET','/purchases/'+x.sourceId));return true;}
+  }catch(e){alert(e.message);}
+  return false;
+}
+async function openTbAccount(r){
+  try{
+    const rows=await api('GET','/ledger/account?account='+encodeURIComponent(r.account)+(tbTo.value?'&to='+tbTo.value:''));
+    const opening=r.opening||0;
+    tbDrill.value={account:r.account,type:r.type,opening,rows:rows.map(e=>({...e,runningBalance:e.runningBalance+opening}))};
+    mTbDrill.value=true;
+  }catch(e){alert(e.message);}
+}
+const tbCanOpen=x=>!!x.sourceId&&['invoice','purchase'].includes(x.sourceType);
+const tbEsc=v=>String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const tbDrCr=b=>b>0.004?'Dr':b<-0.004?'Cr':'';
+function printTrialBalance(){
+  const t=trialBalance.value;const rows=t.accounts||[];
+  const td='padding:5px 8px;border-bottom:1px solid #ddd';const tdr=td+';text-align:right;font-variant-numeric:tabular-nums';
+  const html='<h2 style="margin:0 0 4px;color:#204d4a">Trial Balance</h2><div style="color:#555;margin-bottom:14px">'+tbEsc(coSettings.value?.companyName||'')+' · as at '+tbEsc(fd(tbTo.value||new Date()))+'</div>'+
+    '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#204d4a;color:#fff">'+
+    ['Account','Type','Debit','Credit','Balance'].map((h,i)=>'<th style="padding:6px 8px;text-align:'+(i>1?'right':'left')+'">'+h+'</th>').join('')+'</tr></thead><tbody>'+
+    rows.map(r=>'<tr><td style="'+td+'">'+tbEsc(r.account)+'</td><td style="'+td+'">'+tbEsc(r.type)+'</td><td style="'+tdr+'">'+(r.balanceDr?f(r.balanceDr):'')+'</td><td style="'+tdr+'">'+(r.balanceCr?f(r.balanceCr):'')+'</td><td style="'+tdr+'">'+f(Math.abs(r.balance||0))+' '+tbDrCr(r.balance)+'</td></tr>').join('')+
+    '</tbody><tfoot><tr style="font-weight:700"><td style="'+td+'" colspan="2">Totals</td><td style="'+tdr+'">'+f(t.totalDr||0)+'</td><td style="'+tdr+'">'+f(t.totalCr||0)+'</td><td style="'+td+'"></td></tr></tfoot></table>'+
+    '<div style="margin-top:12px;font-weight:700;color:'+(t.balanced?'#1b7a4b':'#b42318')+'">'+(t.balanced?'Balanced':'Out of balance by '+f(Math.abs((t.totalDr||0)-(t.totalCr||0))))+'</div>';
+  const w=window.open('','tbPrint','width=900,height=1000');
+  if(!w){alert('Please allow popups for this site to print.');return;}
+  w.document.write('<!doctype html><html><head><title>Trial Balance</title><style>body{margin:0;font-family:Arial,sans-serif;background:#f5f5f5}'+
+    '.bar{position:sticky;top:0;display:flex;gap:8px;justify-content:flex-end;padding:12px;background:#fff;border-bottom:1px solid #ddd}'+
+    '.bar button{padding:8px 18px;border-radius:6px;border:none;cursor:pointer;font-size:14px;font-weight:600}.pr{background:#204d4a;color:#fff}.cl{background:#eee;color:#333}'+
+    '@media print{.bar{display:none}body{background:#fff}}</style></head><body><div class="bar"><button class="cl" onclick="window.close()">Close</button><button class="pr" onclick="window.print()">Print / Save PDF</button></div>'+
+    '<div style="padding:20px;background:#fff">'+html+'</div></body></html>');
+  w.document.close();
+}
+function downloadTbCsv(){
+  const t=trialBalance.value;const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';const num=x=>(Math.round((x||0)*100)/100).toFixed(2);
+  const lines=[['Account','Type','Debit','Credit','Balance','Dr/Cr'].map(q).join(',')];
+  for(const r of (t.accounts||[]))lines.push([q(r.account),q(r.type),num(r.balanceDr),num(r.balanceCr),num(Math.abs(r.balance||0)),q(tbDrCr(r.balance))].join(','));
+  lines.push([q('Totals'),q(''),num(t.totalDr),num(t.totalCr),'',q('')].join(','));
+  const url=URL.createObjectURL(new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'}));
+  const a=document.createElement('a');a.href=url;a.download='trial-balance-'+(tbTo.value||today)+'.csv';document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
 async function loadTrialBalance(){
-  try{trialBalance.value=await api('GET','/ledger-accounts/reports/trial-balance');}catch(e){console.error(e.message);}
+  loadTbHealth();
+  try{trialBalance.value=await api('GET','/ledger-accounts/reports/trial-balance'+(tbTo.value?'?to='+tbTo.value:''));}catch(e){alert('Trial balance: '+e.message);}
 }
 function onLedgerAccChange(){
   const acc=ledgerAccs.value.find(a=>a._id===eExp.value.ledgerAccount);
@@ -680,10 +733,10 @@ async function viewStockMovement(productId){
 const mPODetail=ref(false);const poDet=ref({});const newStage=ref({});
 const poDetSrch=ref('');const poDetSrchRes=ref([]);const poDetNewLC=ref({});
 const mInvDetail=ref(false);const invDet=ref({});
-const mReturn=ref(false);const retInv=ref({});const retItems=ref([]);const retTotal=ref(0);const retReason=ref('');const retDate=ref(new Date().toISOString().slice(0,10));const retRestock=ref(true);
+const mReturn=ref(false);const retInv=ref({});const retItems=ref([]);const retTotal=ref(0);const retReason=ref('');const retDate=ref(ymd(new Date()));const retRestock=ref(true);
 const poFinFilt=ref('');
 const psrch=ref('');const ifilt=ref('');const pofilt=ref('');const docTypeFilt=ref('invoice');
-const exFrom=ref(new Date(d.getFullYear(),d.getMonth(),1).toISOString().slice(0,10));const exTo=ref(today);
+const exFrom=ref(ymd(new Date(d.getFullYear(),d.getMonth(),1)));const exTo=ref(today);
 const suppHist=ref({});
 const stmtAcc=ref(null);const stmtFr=ref('');const stmtTo=ref('');const stmtRows=ref([]);const stmtInfo=ref({});
 const mProd=ref(false);const mStk=ref(false);const mCust=ref(false);const mSupp=ref(false);const mSuppH=ref(false);
@@ -1328,7 +1381,7 @@ function poDetAddTaxToItem(item,code){
 }
 function openPODetail(po){
   poDet.value={...po};poPayOpen.value=false;
-  const today2=new Date().toISOString().slice(0,10);
+  const today2=ymd(new Date());
   newStage.value={amount:0,date:today2,paymentMode:'bank',description:'',reference:'',cashAccount:'',bankAccount:''};
   loadCas();loadBaccs();
   mPODetail.value=true;
@@ -1362,7 +1415,7 @@ async function toggleGoodsReceived(){
   const label=newVal?'Mark goods as RECEIVED?':'Mark goods as NOT yet received?';
   if(!confirm(label))return;
   try{
-    const updated=await api('PATCH','/purchases/'+poDet.value._id+'/goods-received',{received:newVal,date:new Date().toISOString().slice(0,10)});
+    const updated=await api('PATCH','/purchases/'+poDet.value._id+'/goods-received',{received:newVal,date:ymd(new Date())});
     poDet.value={...updated};
     loadPOs();
   }catch(e){alert(e.message);}
@@ -1443,7 +1496,7 @@ function openReturn(inv){
     };
   }).filter(item=>item.origQty>0); // hide lines that have already been fully returned
   retReason.value='';
-  retDate.value=new Date().toISOString().slice(0,10);
+  retDate.value=ymd(new Date());
   retRestock.value=true;
   mErr.value='';
   calcReturnTotal();
@@ -1610,7 +1663,7 @@ irdSettings,irdSettingsErr,savingIrd,loadIrdSettings,previewIrdNumber,saveIrdSet
   amountInWords,lineStockWarning,
   invoiceLayout,saveInvoiceLayout,layoutDragStart,layoutDragOver,layoutDrop,layoutMoveUp,layoutMoveDown,SECTION_LABELS,
   mPrintInv,printInv,printTpl,printColor,printShowTax,printShowNotes,printTaxRows,showLivePreview,invPreviewStyle,printInvoice,doPrint,
-  ledgerAccs,mLedgerAcc,eLedgerAcc,mJournalEntry,eJournalEntry,openJournalEntry,saveJournalEntry,mQuickJournal,eQuickJournal,qjAccountGroups,openQuickJournal,onQJTypeChange,onQJDebitChange,onQJCreditChange,saveQuickJournal,mLedgerAccDetail,ledgerAccDetail,mEditLedgerEntry,eEditLedgerEntry,editLedgerEntry,saveLedgerEntry,delLedgerEntry,ledgerAccsByType,loadLedgerAccs,openLedgerAcc,saveLedgerAcc,delLedgerAcc,viewLedgerAcc,trialBalance,loadTrialBalance,expAccFilter,onLedgerAccChange,
+  tbTo,tbHealth,tbHealthOpen,mTbDrill,tbDrill,loadTbHealth,openLedgerSource,openTbAccount,tbCanOpen,tbDrCr,printTrialBalance,downloadTbCsv,ledgerAccs,mLedgerAcc,eLedgerAcc,mJournalEntry,eJournalEntry,openJournalEntry,saveJournalEntry,mQuickJournal,eQuickJournal,qjAccountGroups,openQuickJournal,onQJTypeChange,onQJDebitChange,onQJCreditChange,saveQuickJournal,mLedgerAccDetail,ledgerAccDetail,mEditLedgerEntry,eEditLedgerEntry,editLedgerEntry,saveLedgerEntry,delLedgerEntry,ledgerAccsByType,loadLedgerAccs,openLedgerAcc,saveLedgerAcc,delLedgerAcc,viewLedgerAcc,trialBalance,loadTrialBalance,expAccFilter,onLedgerAccChange,
   reconAccount,reconLines,reconTab,reconSuggestions,reconBatchSuggestion,reconSuggLoading,reconLoading,reconImporting,reconSummary,reconDifference,csvText,csvPreview,csvMap,mReconImport,mReconMatch,mReconSplit,mReconBankOnly,reconActiveLine,splitParts,splitInvSearch,splitInvResults,bankOnlyKind,bankOnlyLabel,splitTotal,splitBalanced,
   loadReconLines,loadReconSummary,importCsv,openMatch,confirmMatch,acceptSuggestion,acceptBatch,splitLine,srchSplitInv,pickSplitInv,saveSplit,bookBankOnly,saveBookBankOnly,ignoreLine,undoReconcile};
 }}).mount('#app');

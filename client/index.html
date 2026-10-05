@@ -1575,13 +1575,32 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
 <!-- TRIAL BALANCE PAGE -->
 <template v-if="pg==='tbal'">
   <div class="topbar"><h2>⚖️ Trial Balance</h2>
-    <div class="tba"><button class="btn btn-o btn-sm" @click="loadTrialBalance">⟳ Refresh</button></div>
+    <div class="tba">
+      <label style="font-size:12px;color:var(--tx2)">As at</label>
+      <input v-model="tbTo" type="date" class="fc" style="width:145px" @change="loadTrialBalance"/>
+      <button class="btn btn-o btn-sm" @click="printTrialBalance" :disabled="!(trialBalance.accounts||[]).length">Print / Save PDF</button>
+      <button class="btn btn-o btn-sm" @click="downloadTbCsv" :disabled="!(trialBalance.accounts||[]).length">Download CSV</button>
+    </div>
   </div>
   <div class="content">
-    <div class="al al-i" style="margin-bottom:12px;font-size:13px">
-      The trial balance lists every ledger account's balance, split into Debit (Dr) and Credit (Cr) columns.
-      A healthy set of books has <strong>Total Dr = Total Cr</strong>. If they don't match, there's an error somewhere.
+    <!-- Books check: every document's own entries must balance -->
+    <div v-if="tbHealth&&!tbHealth.error" style="margin-bottom:12px">
+      <div v-if="!tbHealth.unbalancedCount" class="al al-s" style="margin:0">✓ All entries balance</div>
+      <div v-else class="al al-d" style="margin:0;cursor:pointer" @click="tbHealthOpen=!tbHealthOpen">
+        ✗ {{tbHealth.unbalancedCount}} document{{tbHealth.unbalancedCount===1?'':'s'}} don't balance <span style="font-size:11px">({{tbHealthOpen?'hide':'show'}})</span>
+      </div>
+      <div v-if="tbHealthOpen&&tbHealth.unbalancedCount" class="card" style="margin-top:6px">
+        <div v-for="(u,ui) in tbHealth.unbalanced" :key="ui" style="display:flex;gap:10px;align-items:center;padding:7px 12px;border-bottom:1px solid var(--brd);font-size:12px">
+          <span class="badge" style="font-size:10px;text-transform:capitalize">{{u.sourceType||'manual'}}</span>
+          <span v-if="tbCanOpen(u)" class="ca" style="cursor:pointer;text-decoration:underline" @click="openLedgerSource(u)">{{u.reference||u.description}}</span>
+          <span v-else style="color:var(--tx2)">{{u.reference||u.description||'Entries without a document'}}</span>
+          <span class="mn" style="margin-left:auto;color:var(--red)">{{f(Math.abs(u.difference))}} {{tbDrCr(u.difference)}}</span>
+        </div>
+        <div v-if="tbHealth.unbalancedCount>tbHealth.unbalanced.length" style="padding:7px 12px;font-size:11px;color:var(--tx3)">Showing the first {{tbHealth.unbalanced.length}}.</div>
+      </div>
+      <div v-if="tbHealth.genericRows" style="font-size:11px;color:var(--tx3);margin-top:6px">{{tbHealth.genericRows}} older entries are still on a general "Bank" / "Cash" account (the clean-up script moves them).</div>
     </div>
+    <div v-else-if="tbHealth&&tbHealth.error" class="al al-w" style="margin-bottom:12px;font-size:12px">Books check unavailable: {{tbHealth.error}}</div>
     <div class="card" style="overflow:hidden">
       <div class="tw" style="overflow-x:auto"><table style="min-width:600px">
         <thead><tr>
@@ -1593,7 +1612,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <th style="text-align:right">Balance Cr</th>
         </tr></thead>
         <tbody>
-          <tr v-for="r in (trialBalance.accounts||[])" :key="r.account">
+          <tr v-for="r in (trialBalance.accounts||[])" :key="r.account" class="hover-row" style="cursor:pointer" @click="openTbAccount(r)" title="Show entries">
             <td style="color:var(--txt);font-weight:500">{{r.account}}<span v-if="r.code" style="font-size:10px;color:var(--tx3);margin-left:6px;font-family:var(--fm)">{{r.code}}</span></td>
             <td><span class="badge" style="font-size:10px;text-transform:capitalize">{{r.type}}</span></td>
             <td style="text-align:right;font-family:var(--fm);color:var(--tx2)">{{f(r.debit)}}</td>
@@ -1619,6 +1638,27 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
     </div>
   </div>
 </template>
+<!-- TRIAL BALANCE: entries behind one account -->
+<div class="mo" v-if="mTbDrill" @click.self="mTbDrill=false">
+  <div class="md md-lg"><div class="mh"><h3>{{tbDrill.account}} <span style="font-size:12px;font-weight:400;color:var(--tx3)">as at {{fd(tbTo)}}</span></h3><button class="xbtn" @click="mTbDrill=false">×</button></div>
+    <div class="mb"><div class="tw" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+      <thead><tr><th style="padding:6px 9px;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd);text-align:left">Date</th><th style="padding:6px 9px;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd);text-align:left">Description</th><th style="padding:6px 9px;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd);text-align:left">Ref</th><th style="padding:6px 9px;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd);text-align:right">Debit</th><th style="padding:6px 9px;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd);text-align:right">Credit</th><th style="padding:6px 9px;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd);text-align:right">Balance</th></tr></thead>
+      <tbody>
+        <tr v-if="tbDrill.opening"><td colspan="5" style="padding:6px 9px;border-bottom:1px solid var(--brd);font-weight:600">Opening balance</td><td class="mn" style="padding:6px 9px;border-bottom:1px solid var(--brd);text-align:right">{{f(Math.abs(tbDrill.opening))}} {{tbDrCr(tbDrill.opening)}}</td></tr>
+        <tr v-for="e in tbDrill.rows" :key="e._id" :class="tbCanOpen(e)?'hover-row':''" :style="tbCanOpen(e)?'cursor:pointer':''" @click="tbCanOpen(e)&&(mTbDrill=false,openLedgerSource(e))">
+          <td class="mn cm" style="padding:6px 9px;border-bottom:1px solid var(--brd)">{{fd(e.date)}}</td>
+          <td style="padding:6px 9px;border-bottom:1px solid var(--brd)">{{e.description}}<span v-if="tbCanOpen(e)" style="font-size:10px;color:var(--tx3);margin-left:6px">open ›</span></td>
+          <td class="mn cm" style="padding:6px 9px;border-bottom:1px solid var(--brd);font-size:11px">{{e.reference||'—'}}</td>
+          <td class="mn" style="padding:6px 9px;border-bottom:1px solid var(--brd);text-align:right">{{e.debit?f(e.debit):''}}</td>
+          <td class="mn" style="padding:6px 9px;border-bottom:1px solid var(--brd);text-align:right">{{e.credit?f(e.credit):''}}</td>
+          <td class="mn fw" style="padding:6px 9px;border-bottom:1px solid var(--brd);text-align:right">{{f(Math.abs(e.runningBalance))}} {{tbDrCr(e.runningBalance)}}</td>
+        </tr>
+        <tr v-if="!tbDrill.rows.length"><td colspan="6" class="emp">No entries up to this date</td></tr>
+      </tbody>
+    </table></div></div>
+    <div class="mf"><button class="btn btn-o" @click="mTbDrill=false">Close</button></div>
+  </div>
+</div>
 
 <!-- RECONCILIATION PAGE -->
 <template v-if="pg==='recon'">

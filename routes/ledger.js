@@ -46,6 +46,23 @@ router.get('/trial-balance', requireAuth, requireRole('admin','manager'), async 
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// GET books check: documents whose own ledger rows don't balance, plus legacy generic rows
+router.get('/health', requireAuth, requireRole('admin','manager'), async (req, res) => {
+  try {
+    const groups = await Ledger.aggregate([
+      { $group: { _id: { t: '$sourceType', id: '$sourceId' },
+                  reference: { $first: '$reference' }, description: { $first: '$description' },
+                  dr: { $sum: { $ifNull: ['$debit', 0] } }, cr: { $sum: { $ifNull: ['$credit', 0] } } } },
+      { $project: { _id: 0, sourceType: '$_id.t', sourceId: '$_id.id', reference: 1, description: 1,
+                    difference: { $subtract: ['$dr', '$cr'] } } },
+      { $match: { $or: [{ difference: { $gt: 0.005 } }, { difference: { $lt: -0.005 } }] } },
+      { $sort: { sourceType: 1, reference: 1 } },
+    ]);
+    const genericRows = await Ledger.countDocuments({ account: { $in: ['Bank', 'Cash'] } });
+    res.json({ unbalancedCount: groups.length, unbalanced: groups.slice(0, 50), genericRows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // GET account ledger
 router.get('/account', requireAuth, requireRole('admin','manager'), async (req, res) => {
   try {

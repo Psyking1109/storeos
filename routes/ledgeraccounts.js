@@ -44,9 +44,18 @@ const TB_TYPE = {
 
 router.get('/reports/trial-balance', async (req, res) => {
   try {
+    // Optional "as at" date: only entries up to the end of that day (opening balances always apply)
+    const match = {};
+    if (req.query.to) {
+      const d = new Date(req.query.to);
+      if (isNaN(d)) return res.status(400).json({ error: 'Invalid date' });
+      d.setHours(23, 59, 59, 999);
+      match.date = { $lte: d };
+    }
     const [ledgerAccs, sums] = await Promise.all([
       LedgerAccount.find({ active: true }),
       Ledger.aggregate([
+        { $match: match },
         { $group: { _id: { account: '$account', accountType: '$accountType' },
                     debit: { $sum: { $ifNull: ['$debit', 0] } },
                     credit: { $sum: { $ifNull: ['$credit', 0] } } } },
@@ -83,13 +92,14 @@ router.get('/reports/trial-balance', async (req, res) => {
       const balanceDr = net > 0 ? net : 0;
       const balanceCr = net < 0 ? -net : 0;
       result.push({ account: r.account, code: r.code, type: r.type,
-                    debit: r.debit, credit: r.credit, balance: net, balanceDr, balanceCr });
+                    debit: r.debit, credit: r.credit, balance: net, balanceDr, balanceCr,
+                    opening: isDebitNormal ? r.opening : -r.opening });   // signed, Dr positive
       totalDr += balanceDr;
       totalCr += balanceCr;
     }
     const order = ['asset','liability','equity','income','expense'];
     result.sort((a,b) => (order.indexOf(a.type) - order.indexOf(b.type)) || a.account.localeCompare(b.account));
-    res.json({ accounts: result, totalDr, totalCr, balanced: Math.abs(totalDr - totalCr) < 0.01 });
+    res.json({ accounts: result, totalDr, totalCr, balanced: Math.abs(totalDr - totalCr) < 0.01, to: req.query.to || null });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
