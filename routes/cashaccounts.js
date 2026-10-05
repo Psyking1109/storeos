@@ -45,6 +45,13 @@ router.post('/transfer', requireAuth, async (req, res) => {
   try {
     const { date, fromType, fromId, toType, toId, amount, description, reference } = req.body;
     if (!amount || amount <= 0) return res.status(400).json({ error: 'Amount must be positive' });
+    if (!['cash', 'bank'].includes(fromType) || !['cash', 'bank'].includes(toType))
+      return res.status(400).json({ error: 'Choose cash or bank for both sides' });
+    const Model = t => t === 'cash' ? CashAccount : BankAccount;
+    const okId = id => mongoose.isValidObjectId(id);
+    if (!okId(fromId) || !(await Model(fromType).exists({ _id: fromId }))) return res.status(400).json({ error: 'Select the account the money comes from' });
+    if (!okId(toId)   || !(await Model(toType).exists({ _id: toId })))     return res.status(400).json({ error: 'Select the account the money goes to' });
+    if (fromType === toType && String(fromId) === String(toId)) return res.status(400).json({ error: 'Choose two different accounts' });
 
     let fromName = '', toName = '';
 
@@ -104,11 +111,17 @@ router.get('/transfers', requireAuth, async (req, res) => {
 router.put('/:id/adjust', requireAuth, async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
-    const { amount, description } = req.body;
-    const acc = await CashAccount.findByIdAndUpdate(
-      req.params.id, { $inc: { currentBalance: Number(amount)||0 } }, { new: true }
-    );
+    const { description } = req.body;
+    const amt = Number(req.body.amount) || 0;
+    if (!amt) return res.status(400).json({ error: 'Adjustment amount required' });
+    const acc = await CashAccount.findByIdAndUpdate(req.params.id, { $inc: { currentBalance: amt } }, { new: true });
     if (!acc) return res.status(404).json({ error: 'Account not found' });
+    // Till over/short goes to Cash Over/Short so the ledger matches the balance
+    const base = { date: new Date(), description: description || `Cash count adjustment — ${acc.name}`, reference: '', sourceType: 'adjustment', sourceId: acc._id };
+    await Ledger.insertMany([
+      { ...base, account: acc.name, accountType: 'cash', debit: amt > 0 ? amt : 0, credit: amt < 0 ? -amt : 0 },
+      { ...base, account: 'Cash Over/Short', accountType: 'expense', debit: amt < 0 ? -amt : 0, credit: amt > 0 ? amt : 0 },
+    ]);
     res.json(acc);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });

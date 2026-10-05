@@ -26,18 +26,14 @@ router.get('/', requireAuth, async (req, res) => {
 router.post('/', requireAuth, async (req, res) => {
   try {
     const data = { ...req.body };
-    if (!data.cashAccount) delete data.cashAccount;
+    if (!(Number(data.amount) > 0)) return res.status(400).json({ error: 'Amount must be greater than 0' });
+    const acc = mongoose.isValidObjectId(data.cashAccount) ? await CashAccount.findById(data.cashAccount) : null;
+    if (!acc) return res.status(400).json({ error: 'Select the cash account' });
     const entry = new CashEntry(data);
-    // Update CashAccount balance if specified
-    if (data.cashAccount) {
-      const acc = await CashAccount.findById(data.cashAccount);
-      if (acc) {
-        entry.cashAccountName = acc.name;
-        const delta = data.type === 'in' ? data.amount : -data.amount;
-        await CashAccount.findByIdAndUpdate(data.cashAccount, { $inc: { currentBalance: delta } });
-      }
-    }
+    entry.cashAccountName = acc.name;
     await entry.save();
+    const delta = data.type === 'in' ? Number(data.amount) : -Number(data.amount);
+    await CashAccount.findByIdAndUpdate(acc._id, { $inc: { currentBalance: delta } });
     res.status(201).json(entry);
   } catch (err) { res.status(400).json({ error: err.message }); }
 });

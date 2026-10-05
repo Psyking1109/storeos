@@ -722,6 +722,15 @@ const tdate=computed(()=>new Date().toLocaleDateString('en-GB',{weekday:'long',y
 const lowStock=computed(()=>prods.value.filter(p=>p.stock<=p.minStock).length);
 const pendChq=computed(()=>chqs.value.filter(c=>c.status==='pending'&&new Date(c.dueDate)<=new Date(Date.now()+7*86400000)).length);
 const trialGrp=computed(()=>{const g={};for(const r of trial.value.rows||[]){if(!g[r.accountType])g[r.accountType]={type:r.accountType,rows:[]};g[r.accountType].rows.push(r);}return Object.values(g);});
+// Every payment must say exactly which account the money moves through
+function payAccountErr(mode,cashAcc,bankAcc,chequeNo,dir){
+  const w=dir==='out'?'paid from':'received into';
+  if((mode||'cash')==='cash'&&!cashAcc)return 'Select the cash account the money was '+w;
+  if(mode==='bank'&&!bankAcc)return 'Select the bank account the money was '+w;
+  if(mode==='cheque'&&!chequeNo)return 'Enter the cheque number';
+  if(!['cash','bank','cheque'].includes(mode||'cash'))return 'Choose cash, bank or cheque';
+  return '';
+}
 const f=n=>Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fd=d=>d?new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'—';
 const fdL=d=>new Date(d).toLocaleDateString('en-GB',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
@@ -1025,7 +1034,7 @@ function calcInv(){try{
   nInv.value.balance=nInv.value.total-(nInv.value.paid||0);
 }catch(e){console.error('calcInv error:',e);}}
 function openNewInv(docType){nInv.value=fInv();if(docType)nInv.value.type=docType;invNoPreview.value='';iSrch.value='';iSrchRes.value=[];mErr.value='';loadCusts();loadTxRates();loadInvTypes();loadCas();loadBaccs();mInv.value=true;}
-async function saveInv(){if(!nInv.value.items.length){mErr.value='Add at least one item';return;}saving.value=true;mErr.value='';try{await api('POST','/invoices',nInv.value);mInv.value=false;loadInvs();}catch(e){mErr.value=e.message;}saving.value=false;}
+async function saveInv(){if(!nInv.value.items.length){mErr.value='Add at least one item';return;}if(nInv.value.type!=='proforma'&&+nInv.value.paid>0){const pe=payAccountErr(nInv.value.paymentMode,nInv.value.cashAccount,nInv.value.bankAccount,nInv.value.chequeNo,'in');if(pe){mErr.value=pe;return;}}saving.value=true;mErr.value='';try{await api('POST','/invoices',nInv.value);mInv.value=false;loadInvs();}catch(e){mErr.value=e.message;}saving.value=false;}
 async function delInv(id){if(!confirm('Delete invoice?'))return;try{await api('DELETE','/invoices/'+id);loadInvs();}catch(e){alert(e.message);}}
 async function srchProdsPO(){if(!poSrch.value.trim()){poSrchRes.value=[];return;}try{poSrchRes.value=(await api('GET','/products?search='+poSrch.value)).slice(0,8);}catch(e){}}
 function addProdToPO(p){const isImp=nPO.value.purchaseType==='import';nPO.value.items.push({product:p._id,productName:p.name,sku:p.sku||'',qty:1,unit:p.unit||'pcs',unitCostForeign:isImp?0:p.costPrice,unitCost:p.costPrice,taxLines:[],taxAmount:0,lineSubtotal:0,lineTotal:0,landingCostShare:0,finalUnitCost:0});poSrch.value='';poSrchRes.value=[];calcPO();}
@@ -1047,8 +1056,8 @@ function calcPO(){
     lc.taxAmount=lcTax;lc.totalAmount=(lc.amount||0)+lcTax;
     lcTot+=(lc.amount||0)+lcTax;
   }const totV=nPO.value.items.reduce((s,i)=>s+(i.lineTotal||0),0);for(const item of nPO.value.items){const sh=totV?(item.lineTotal/totV)*lcTot:(nPO.value.items.length?lcTot/nPO.value.items.length:0);item.landingCostShare=sh;item.finalUnitCost=(item.unitCost||0)+(item.qty?sh/item.qty:0);}nPO.value.subtotalForeign=subF;nPO.value.subtotal=subL;nPO.value.taxAmount=totTax;nPO.value.landingCostTotal=lcTot;nPO.value.total=subL+totTax+lcTot;nPO.value.balance=nPO.value.total-(nPO.value.paid||0);}
-function openNewPO(type){nPO.value=fPO(type);poSrch.value='';poSrchRes.value=[];mErr.value='';loadSupps();loadTxRates();mPO.value=true;}
-async function savePO(){if(!nPO.value.items.length){mErr.value='Add at least one item';return;}saving.value=true;mErr.value='';try{await api('POST','/purchases',nPO.value);mPO.value=false;loadPOs();}catch(e){mErr.value=e.message;}saving.value=false;}
+function openNewPO(type){nPO.value=fPO(type);poSrch.value='';poSrchRes.value=[];mErr.value='';loadSupps();loadTxRates();loadCas();loadBaccs();mPO.value=true;}
+async function savePO(){if(!nPO.value.items.length){mErr.value='Add at least one item';return;}if(+nPO.value.paid>0){const pe=payAccountErr(nPO.value.paymentMode,nPO.value.cashAccount,nPO.value.bankAccount,nPO.value.chequeNo,'out');if(pe){mErr.value=pe;return;}}saving.value=true;mErr.value='';try{await api('POST','/purchases',nPO.value);mPO.value=false;loadPOs();}catch(e){mErr.value=e.message;}saving.value=false;}
 function openCust(c){eCust.value=c?{...c}:{name:'',phone:'',email:'',tin:'',address:''};mCust.value=true;}
 async function saveCust(){saving.value=true;try{if(eCust.value._id)await api('PUT','/customers/'+eCust.value._id,eCust.value);else await api('POST','/customers',eCust.value);mCust.value=false;loadCusts();}catch(e){alert(e.message);}saving.value=false;}
 function openSupp(s){eSupp.value=s?{...s}:{name:'',phone:'',email:'',address:''};mSupp.value=true;}
@@ -1063,6 +1072,7 @@ async function saveExp(){
   if(!eExp.value.ledgerAccount&&!eExp.value.ledgerAccountName){mErr.value='Please select an expense account';return;}
   if(!eExp.value.description){mErr.value='Description required';return;}
   if(!eExp.value.amount||eExp.value.amount<=0){mErr.value='Amount must be greater than 0';return;}
+  if(['cash','bank','cheque'].includes(eExp.value.paymentMethod)){const pe=payAccountErr(eExp.value.paymentMethod,eExp.value.cashAccount,eExp.value.bankAccount,eExp.value.chequeNo,'out');if(pe){mErr.value=pe;return;}}
   saving.value=true;mErr.value='';
   try{
     const d={...eExp.value};
@@ -1083,11 +1093,13 @@ async function saveExp(){
 }
 async function delExp(id){if(!confirm('Delete expense?'))return;try{await api('DELETE','/expenses/'+id);loadExps();loadCas();loadBaccs();}catch(e){alert(e.message);}}
 function openPay(doc,type){payDoc.value=doc;payAmt.value=doc.balance;payMode.value='cash';payCashAcc.value='';payBankAcc.value='';payChqNo.value='';payDate.value=today;payChqDate.value='';payChqBank.value='';payChqDrawer.value='';loadCas();loadBaccs();mPay.value=true;}
-async function savePay(){saving.value=true;try{const ep=payDoc.value.invoiceNo?'/invoices/'+payDoc.value._id+'/payment':'/purchases/'+payDoc.value._id+'/payment';await api('PATCH',ep,{amount:payAmt.value,paymentMode:payMode.value,cashAccount:payCashAcc.value||undefined,bankAccount:payBankAcc.value||undefined,chequeNo:payChqNo.value||undefined,chequeDate:payChqDate.value||undefined,chequeBank:payChqBank.value||undefined,chequeDrawer:payChqDrawer.value||undefined,date:payDate.value});mPay.value=false;if(payDoc.value.invoiceNo)loadInvs();else loadPOs();}catch(e){alert(e.message);}saving.value=false;}
+async function savePay(){if(!(+payAmt.value>0)){alert('Enter the amount');return;}const pe=payAccountErr(payMode.value,payCashAcc.value,payBankAcc.value,payChqNo.value,payDoc.value?.invoiceNo?'in':'out');if(pe){alert(pe);return;}saving.value=true;try{const ep=payDoc.value.invoiceNo?'/invoices/'+payDoc.value._id+'/payment':'/purchases/'+payDoc.value._id+'/payment';await api('PATCH',ep,{amount:payAmt.value,paymentMode:payMode.value,cashAccount:payCashAcc.value||undefined,bankAccount:payBankAcc.value||undefined,chequeNo:payChqNo.value||undefined,chequeDate:payChqDate.value||undefined,chequeBank:payChqBank.value||undefined,chequeDrawer:payChqDrawer.value||undefined,date:payDate.value});mPay.value=false;if(payDoc.value.invoiceNo)loadInvs();else loadPOs();}catch(e){alert(e.message);}saving.value=false;}
 function openBAcc(a){eBAcc.value=a?{...a}:{name:'',bank:'',branch:'',accountNumber:'',type:'current',openingBalance:0};mErr.value='';mBAcc.value=true;}
 async function saveBAcc(){if(!eBAcc.value.name){mErr.value='Name required';return;}saving.value=true;mErr.value='';try{if(eBAcc.value._id)await api('PUT','/banking/accounts/'+eBAcc.value._id,eBAcc.value);else await api('POST','/banking/accounts',eBAcc.value);mBAcc.value=false;loadBaccs();}catch(e){mErr.value=e.message;}saving.value=false;}
-function openBTx(){eBTx.value={type:'deposit',account:'',toAccount:'',amount:0,date:today,description:'',chequeNo:'',reference:'',cleared:true};mErr.value='';mBTx.value=true;}
-async function saveBTx(){if(!eBTx.value.account||!eBTx.value.amount){mErr.value='Account and amount required';return;}saving.value=true;mErr.value='';try{await api('POST','/banking/transactions',eBTx.value);mBTx.value=false;loadBaccs();loadBTxs();}catch(e){mErr.value=e.message;}saving.value=false;}
+function openBTx(){eBTx.value={type:'deposit',account:'',toAccount:'',counter:'',amount:0,date:today,description:'',chequeNo:'',reference:'',cleared:true};mErr.value='';loadCas();if(!ledgerAccs.value.length)loadLedgerAccs();mBTx.value=true;}
+async function saveBTx(){const t=eBTx.value;if(!t.account||!(+t.amount>0)){mErr.value='Bank account and amount required';return;}if(t.type==='transfer'&&!t.toAccount){mErr.value='Select the account to transfer to';return;}if(t.type!=='transfer'&&!t.counter){mErr.value=t.type==='deposit'?'Choose where the money came from':'Choose where the money went';return;}if(!t.description){mErr.value='Description required';return;}
+  const body={...t};delete body.counter;if(t.type!=='transfer'){const[kind,val]=t.counter.split(':');if(kind==='cash')body.cashAccount=val;else body.contraAccount=t.counter.slice(7);}
+  saving.value=true;mErr.value='';try{await api('POST','/banking/transactions',body);loadCas();mBTx.value=false;loadBaccs();loadBTxs();}catch(e){mErr.value=e.message;}saving.value=false;}
 async function delBTx(id){if(!confirm('Delete? Balance will be reversed.'))return;try{await api('DELETE','/banking/transactions/'+id);loadBaccs();loadBTxs();}catch(e){alert(e.message);}}
 async function viewStmt(a){stmtAcc.value=a;stmtRows.value=[];stmtInfo.value={};mStmt.value=true;await loadStmt();}
 function openChq(c){eChq.value=c?{...c,date:c.date?new Date(c.date).toISOString().slice(0,10):today,dueDate:c.dueDate?new Date(c.dueDate).toISOString().slice(0,10):''}:{chequeNo:'',direction:'received',amount:0,party:'',partyId:'',drawer:'',bank:'',branch:'',date:today,dueDate:'',reference:'',contraAccount:''};mErr.value='';loadCusts();loadSupps();if(!ledgerAccs.value.length)loadLedgerAccs();mChq.value=true;}
@@ -1322,6 +1334,7 @@ function openPODetail(po){
 }
 async function savePayStage(){
   if(!newStage.value.amount||newStage.value.amount<=0){alert('Enter amount');return;}
+  {const pe=payAccountErr(newStage.value.paymentMode,newStage.value.cashAccount,newStage.value.bankAccount,newStage.value.reference,'out');if(pe){alert(pe==='Enter the cheque number'?'Enter the cheque number in Reference':pe);return;}}
   saving.value=true;
   try{
     const d={...newStage.value};

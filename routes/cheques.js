@@ -71,7 +71,7 @@ async function depositReceived(chq, accountId, date) {
   if (!acc) throw new Error('Select the bank account it was deposited to');
   await BankAccount.findByIdAndUpdate(acc._id, { $inc: { currentBalance: chq.amount } });
   await BankTx.create({ date: date || new Date(), type: 'deposit', account: acc._id, accountName: acc.name, amount: chq.amount,
-    description: `Cheque deposit #${chq.chequeNo} — ${chq.party}`, reference: chq.chequeNo, chequeNo: chq.chequeNo, cleared: false });
+    description: `Cheque deposit #${chq.chequeNo} — ${chq.party}`, reference: chq.chequeNo, chequeNo: chq.chequeNo, source: 'cheque', cleared: false });
   await rows(chq, date, `Cheque deposited #${chq.chequeNo}`, [
     { account: acc.name, accountType: 'bank', debit: chq.amount, credit: 0 },
     { account: RECV, accountType: 'cheque', debit: 0, credit: chq.amount },
@@ -183,7 +183,7 @@ router.patch('/:id/status', async (req, res) => {
         if (acc) {
           await BankAccount.findByIdAndUpdate(acc._id, { $inc: { currentBalance: -chq.amount } });
           await BankTx.create({ date: new Date(), type: 'withdrawal', account: acc._id, accountName: acc.name, amount: chq.amount,
-            description: `Cheque returned unpaid #${chq.chequeNo} — ${chq.party}`, reference: chq.chequeNo, chequeNo: chq.chequeNo, cleared: true });
+            description: `Cheque returned unpaid #${chq.chequeNo} — ${chq.party}`, reference: chq.chequeNo, chequeNo: chq.chequeNo, source: 'cheque', cleared: true });
         }
         await rows(chq, new Date(), `Cheque bounced #${chq.chequeNo}`, [
           { account: contra.account, accountType: contra.accountType, debit: chq.amount, credit: 0 },
@@ -205,7 +205,7 @@ router.patch('/:id/status', async (req, res) => {
         if (!acc) return res.status(400).json({ error: 'Select the bank account the cheque was drawn on' });
         await BankAccount.findByIdAndUpdate(acc._id, { $inc: { currentBalance: -chq.amount } });
         await BankTx.create({ date: when(clearedDate), type: 'withdrawal', account: acc._id, accountName: acc.name, amount: chq.amount,
-          description: `Cheque cleared #${chq.chequeNo} — ${chq.party}`, reference: chq.chequeNo, chequeNo: chq.chequeNo, cleared: true });
+          description: `Cheque cleared #${chq.chequeNo} — ${chq.party}`, reference: chq.chequeNo, chequeNo: chq.chequeNo, source: 'cheque', cleared: true });
         await rows(chq, when(clearedDate), `Cheque cleared #${chq.chequeNo}`, [
           { account: PAYB, accountType: 'cheque', debit: chq.amount, credit: 0 },
           { account: acc.name, accountType: 'bank', debit: 0, credit: chq.amount },

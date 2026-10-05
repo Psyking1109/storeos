@@ -4,6 +4,7 @@ const Expense     = require('../models/Expense');
 const CashAccount = require('../models/CashAccount');
 const BankAccount = require('../models/BankAccount');
 const Ledger      = require('../models/Ledger');
+const Cheque      = require('../models/Cheque');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 router.get('/', requireAuth, async (req, res) => {
@@ -65,7 +66,9 @@ router.post('/', requireAuth, async (req, res) => {
     } else if (data.paymentMethod === 'bank') {
       return res.status(400).json({ error: 'Select the bank account this was paid from' });
     } else if (data.paymentMethod === 'cash') {
-      sourceAccountName = 'Cash';
+      return res.status(400).json({ error: 'Select the cash account this was paid from' });
+    } else if (data.paymentMethod === 'cheque' && !data.chequeNo) {
+      return res.status(400).json({ error: 'Enter the cheque number' });
     } else {
       sourceAccountName = data.paymentMethod === 'cheque' ? 'Cheques Payable' : 'Accounts Payable';
     }
@@ -84,6 +87,13 @@ router.post('/', requireAuth, async (req, res) => {
         sourceType: 'expense', sourceId: expense._id }
     ]);
 
+    // A cheque we wrote: it leaves the bank when marked cleared on the Cheques page
+    if (data.paymentMethod === 'cheque') {
+      await Cheque.create({ chequeNo: data.chequeNo, direction: 'issued', amount: Number(data.amount), date: data.date || new Date(),
+        dueDate: data.chequeDate || data.date || new Date(), party: data.vendor || data.description, reference: data.reference || '',
+        status: 'pending', postedBy: 'expense', contraAccount: data.ledgerAccountName || data.category || 'Expenses', contraType: 'expense',
+        notes: `Expense ${expense._id}` });
+    }
     res.status(201).json(expense);
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
@@ -97,6 +107,12 @@ router.delete('/:id', requireAuth, requireRole('admin','manager'), async (req, r
     // and a reimbursement is money IN, so reversing it here would move the bank the wrong way
     if ((exp.reference || '').startsWith('RECON-'))
       return res.status(400).json({ error: 'This entry was booked from a bank statement line. Undo it from Bank Reconciliation instead.' });
+    if (exp.paymentMethod === 'cheque' && exp.chequeNo) {
+      const chq = await Cheque.findOne({ notes: `Expense ${exp._id}` });
+      if (chq && chq.status !== 'pending')
+        return res.status(400).json({ error: `Cheque #${chq.chequeNo} is already ${chq.status}. Cancel or reverse it from Cheques first.` });
+      if (chq) await Cheque.findByIdAndDelete(chq._id);
+    }
     // Reverse the balance deduction
     if (exp.cashAccount) await CashAccount.findByIdAndUpdate(exp.cashAccount, { $inc: { currentBalance: exp.amount } });
     if (exp.bankAccount)  await BankAccount.findByIdAndUpdate(exp.bankAccount,  { $inc: { currentBalance: exp.amount } });

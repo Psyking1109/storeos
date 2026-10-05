@@ -5,6 +5,8 @@ const BankAccount = require('../models/BankAccount');
 const BankTx = require('../models/BankTx');
 const CashEntry = require('../models/CashEntry');
 const Ledger = require('../models/Ledger');
+const CashAccount = require('../models/CashAccount');
+const LedgerAccount = require('../models/LedgerAccount');
 
 // ── BANK ACCOUNTS ──────────────────────────────────────────────
 
@@ -90,53 +92,67 @@ router.get('/transactions', async (req, res) => {
 
 router.post('/transactions', async (req, res) => {
   try {
-    const data = req.body;
-    const tx = new BankTx(data);
-    await tx.save();
+    const data = { ...req.body };
+    const amount = Number(data.amount);
+    if (!(amount > 0)) return res.status(400).json({ error: 'Amount must be greater than 0' });
+    if (!['deposit', 'withdrawal', 'transfer'].includes(data.type)) return res.status(400).json({ error: 'Choose deposit, withdrawal or transfer' });
+    if (!data.description) return res.status(400).json({ error: 'Description required' });
+    // Check every account BEFORE anything is written
+    const acc = mongoose.isValidObjectId(data.account) ? await BankAccount.findById(data.account) : null;
+    if (!acc) return res.status(400).json({ error: 'Select the bank account' });
 
-    const acc = await BankAccount.findById(data.account);
-    if (!acc) throw new Error('Account not found');
+    let toAcc = null, cashAcc = null, contra = null;
+    if (data.type === 'transfer') {
+      toAcc = mongoose.isValidObjectId(data.toAccount) ? await BankAccount.findById(data.toAccount) : null;
+      if (!toAcc) return res.status(400).json({ error: 'Select the destination bank account' });
+      if (String(toAcc._id) === String(acc._id)) return res.status(400).json({ error: 'Choose two different accounts' });
+    } else if (data.cashAccount) {
+      cashAcc = mongoose.isValidObjectId(data.cashAccount) ? await CashAccount.findById(data.cashAccount) : null;
+      if (!cashAcc) return res.status(400).json({ error: 'Cash account not found' });
+    } else if (data.contraAccount) {
+      const la = await LedgerAccount.findOne({ name: data.contraAccount });
+      contra = { account: data.contraAccount, accountType: la ? la.type : (data.type === 'deposit' ? 'income' : 'expense') };
+    } else {
+      return res.status(400).json({ error: data.type === 'deposit'
+        ? 'Choose where the money came from (a cash account or a ledger account)'
+        : 'Choose where the money went (a cash account or a ledger account)' });
+    }
+
+    const tx = new BankTx({ ...data, amount, accountName: acc.name, toAccountName: toAcc ? toAcc.name : '',
+      cashAccount: cashAcc ? cashAcc._id : undefined, cashAccountName: cashAcc ? cashAcc.name : '',
+      contraAccount: contra ? contra.account : '' });
+    await tx.save();
+    const base = { date: data.date || new Date(), description: data.description, reference: data.reference || '', sourceType: 'bank', sourceId: tx._id };
+    const other = cashAcc ? { account: cashAcc.name, accountType: 'cash' } : contra;
 
     if (data.type === 'deposit') {
-      await BankAccount.findByIdAndUpdate(data.account, { $inc: { currentBalance: data.amount } });
-      // Also create cash entry if it's a cash-to-bank deposit
-      if (data.fromCash) {
-        await CashEntry.create({
-          date: data.date, type: 'out', category: 'Bank Deposit',
-          description: `Cash deposited to ${acc.name}`,
-          reference: data.reference || tx._id.toString(),
-          amount: data.amount, paymentMode: 'cash'
-        });
+      await BankAccount.findByIdAndUpdate(acc._id, { $inc: { currentBalance: amount } });
+      if (cashAcc) {
+        await CashAccount.findByIdAndUpdate(cashAcc._id, { $inc: { currentBalance: -amount } });
+        await CashEntry.create({ date: base.date, type: 'out', category: 'Bank Deposit', description: `Cash deposited to ${acc.name}`,
+          reference: data.reference || tx._id.toString(), amount, paymentMode: 'cash', cashAccount: cashAcc._id, cashAccountName: cashAcc.name });
       }
       await Ledger.insertMany([
-        { date: data.date, account: acc.name, accountType: 'bank', debit: data.amount, credit: 0, description: data.description, reference: data.reference, sourceType: 'bank', sourceId: tx._id },
-        { date: data.date, account: data.fromCash ? 'Cash' : 'Income', accountType: data.fromCash ? 'cash' : 'income', debit: 0, credit: data.amount, description: data.description, reference: data.reference, sourceType: 'bank', sourceId: tx._id }
+        { ...base, account: acc.name, accountType: 'bank', debit: amount, credit: 0 },
+        { ...base, ...other, debit: 0, credit: amount },
       ]);
     } else if (data.type === 'withdrawal') {
-      await BankAccount.findByIdAndUpdate(data.account, { $inc: { currentBalance: -data.amount } });
-      if (data.toCash) {
-        await CashEntry.create({
-          date: data.date, type: 'in', category: 'Bank Withdrawal',
-          description: `Cash withdrawn from ${acc.name}`,
-          reference: data.reference || tx._id.toString(),
-          amount: data.amount, paymentMode: 'bank'
-        });
+      await BankAccount.findByIdAndUpdate(acc._id, { $inc: { currentBalance: -amount } });
+      if (cashAcc) {
+        await CashAccount.findByIdAndUpdate(cashAcc._id, { $inc: { currentBalance: amount } });
+        await CashEntry.create({ date: base.date, type: 'in', category: 'Bank Withdrawal', description: `Cash withdrawn from ${acc.name}`,
+          reference: data.reference || tx._id.toString(), amount, paymentMode: 'bank', cashAccount: cashAcc._id, cashAccountName: cashAcc.name });
       }
       await Ledger.insertMany([
-        { date: data.date, account: data.toCash ? 'Cash' : 'Expense', accountType: data.toCash ? 'cash' : 'expense', debit: data.amount, credit: 0, description: data.description, reference: data.reference, sourceType: 'bank', sourceId: tx._id },
-        { date: data.date, account: acc.name, accountType: 'bank', debit: 0, credit: data.amount, description: data.description, reference: data.reference, sourceType: 'bank', sourceId: tx._id }
+        { ...base, ...other, debit: amount, credit: 0 },
+        { ...base, account: acc.name, accountType: 'bank', debit: 0, credit: amount },
       ]);
-    } else if (data.type === 'transfer') {
-      if (!data.toAccount) throw new Error('Destination account required for transfer');
-      const toAcc = await BankAccount.findById(data.toAccount);
-      if (!toAcc) throw new Error('Destination account not found');
-      await BankAccount.findByIdAndUpdate(data.account,   { $inc: { currentBalance: -data.amount } });
-      await BankAccount.findByIdAndUpdate(data.toAccount, { $inc: { currentBalance:  data.amount } });
-      tx.toAccountName = toAcc.name;
-      await tx.save();
+    } else {
+      await BankAccount.findByIdAndUpdate(acc._id,   { $inc: { currentBalance: -amount } });
+      await BankAccount.findByIdAndUpdate(toAcc._id, { $inc: { currentBalance:  amount } });
       await Ledger.insertMany([
-        { date: data.date, account: toAcc.name, accountType: 'bank', debit: data.amount, credit: 0, description: `Transfer from ${acc.name}: ${data.description}`, reference: data.reference, sourceType: 'bank', sourceId: tx._id },
-        { date: data.date, account: acc.name,   accountType: 'bank', debit: 0, credit: data.amount, description: `Transfer to ${toAcc.name}: ${data.description}`, reference: data.reference, sourceType: 'bank', sourceId: tx._id }
+        { ...base, account: toAcc.name, accountType: 'bank', debit: amount, credit: 0, description: `Transfer from ${acc.name}: ${data.description}` },
+        { ...base, account: acc.name,   accountType: 'bank', debit: 0, credit: amount, description: `Transfer to ${toAcc.name}: ${data.description}` },
       ]);
     }
 
@@ -149,6 +165,12 @@ router.delete('/transactions/:id', async (req, res) => {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
     const tx = await BankTx.findById(req.params.id);
     if (!tx) return res.status(404).json({ error: 'Not found' });
+    if (tx.source === 'cheque' || (tx.chequeNo && !(await Ledger.exists({ sourceId: tx._id }))))
+      return res.status(400).json({ error: 'This was posted by a cheque. Reverse it from the Cheques page (bounce/cancel) instead.' });
+    if (tx.cashAccount) {
+      if (tx.type === 'deposit')    await CashAccount.findByIdAndUpdate(tx.cashAccount, { $inc: { currentBalance:  tx.amount } });
+      if (tx.type === 'withdrawal') await CashAccount.findByIdAndUpdate(tx.cashAccount, { $inc: { currentBalance: -tx.amount } });
+    }
     // Reverse balance
     if (tx.type === 'deposit')    await BankAccount.findByIdAndUpdate(tx.account, { $inc: { currentBalance: -tx.amount } });
     if (tx.type === 'withdrawal') await BankAccount.findByIdAndUpdate(tx.account, { $inc: { currentBalance:  tx.amount } });
@@ -199,11 +221,16 @@ router.get('/accounts/:id/statement', async (req, res) => {
 router.put('/accounts/:id/adjust', requireAuth, async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
-    const { amount } = req.body;
-    const acc = await BankAccount.findByIdAndUpdate(
-      req.params.id, { $inc: { currentBalance: Number(amount)||0 } }, { new: true }
-    );
+    const amt = Number(req.body.amount) || 0;
+    if (!amt) return res.status(400).json({ error: 'Adjustment amount required' });
+    const acc = await BankAccount.findByIdAndUpdate(req.params.id, { $inc: { currentBalance: amt } }, { new: true });
     if (!acc) return res.status(404).json({ error: 'Account not found' });
+    // Keep the books in step with the balance: the difference goes to Bank Adjustments
+    const base = { date: new Date(), description: req.body.description || `Balance adjustment — ${acc.name}`, reference: '', sourceType: 'adjustment', sourceId: acc._id };
+    await Ledger.insertMany([
+      { ...base, account: acc.name, accountType: 'bank', debit: amt > 0 ? amt : 0, credit: amt < 0 ? -amt : 0 },
+      { ...base, account: 'Bank Adjustments', accountType: 'expense', debit: amt < 0 ? -amt : 0, credit: amt > 0 ? amt : 0 },
+    ]);
     res.json(acc);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });

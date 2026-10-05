@@ -14,6 +14,7 @@ const Cheque = require('../models/Cheque');
 function stagePaymentError(p) {
   if (!(Number(p.amount) > 0)) return 'Amount required';
   if (p.paymentMode === 'bank' && !p.bankAccount) return 'Select the bank account the payment was made from';
+  if ((p.paymentMode || 'cash') === 'cash' && !p.cashAccount) return 'Select the cash account the payment was made from';
   if (p.paymentMode === 'cheque' && !p.reference) return 'Enter the cheque number in Reference';
   if (!['cash', 'bank', 'cheque'].includes(p.paymentMode || 'cash')) return 'To pay with a cheque you received, endorse it from Cheques';
   return null;
@@ -38,10 +39,9 @@ async function payPurchase(po, p) {
       reference: po.purchaseNo, purchase: po._id, status: 'pending', postedBy: 'purchase' });
     stage.cheque = chq._id; account = 'Cheques Payable'; accountType = 'cheque';
   } else {
-    if (p.cashAccount) {
-      const acc = await CashAccount.findByIdAndUpdate(p.cashAccount, { $inc: { currentBalance: -amount } });
-      if (acc) { stage.cashAccount = acc._id; account = acc.name; }
-    }
+    const acc = await CashAccount.findByIdAndUpdate(p.cashAccount, { $inc: { currentBalance: -amount } });
+    if (!acc) throw new Error('Cash account not found');
+    stage.cashAccount = acc._id; account = acc.name;
     await CashEntry.create({ date, type: 'out', category: 'Purchase Payment', description: `Payment for ${po.purchaseNo} - ${po.supplierName || ''}`,
       reference: po.purchaseNo, amount, paymentMode: 'cash', cashAccount: stage.cashAccount, cashAccountName: stage.cashAccount ? account : '' });
   }
@@ -104,7 +104,7 @@ router.post('/', async (req, res) => {
     if (!data.supplier) delete data.supplier;
     const upFront = Number(data.paid) || 0;
     if (upFront > 0) {
-      const pe = stagePaymentError({ amount: upFront, paymentMode: data.paymentMode, bankAccount: data.bankAccount, reference: data.chequeNo || data.paymentReference });
+      const pe = stagePaymentError({ amount: upFront, paymentMode: data.paymentMode, cashAccount: data.cashAccount, bankAccount: data.bankAccount, reference: data.chequeNo || data.paymentReference });
       if (pe) return res.status(400).json({ error: pe });
     }
     data.paid = 0; // recorded below as a payment stage

@@ -2073,19 +2073,19 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
               <option value="cheque">Cheque</option><option value="credit">Credit</option>
             </select>
           </div>
-          <div class="fl" v-if="eExp.paymentMethod==='cash'"><label>From Cash Account</label>
+          <div class="fl" v-if="eExp.paymentMethod==='cash'"><label>From Cash Account *</label>
             <select v-model="eExp.cashAccount" class="fc">
               <option value="">— Select —</option>
               <option v-for="c in cas" :key="c._id" :value="c._id">{{c.name}} ({{f(c.currentBalance)}})</option>
             </select>
           </div>
-          <div class="fl" v-if="eExp.paymentMethod==='bank'"><label>From Bank Account</label>
+          <div class="fl" v-if="eExp.paymentMethod==='bank'"><label>From Bank Account *</label>
             <select v-model="eExp.bankAccount" class="fc">
               <option value="">— Select —</option>
               <option v-for="b in baccs" :key="b._id" :value="b._id">{{b.name}} ({{f(b.currentBalance)}})</option>
             </select>
           </div>
-          <div class="fl" v-if="eExp.paymentMethod==='cheque'"><label>Cheque Number</label><input v-model="eExp.chequeNo" class="fc"/></div>
+          <div class="fl" v-if="eExp.paymentMethod==='cheque'"><label>Cheque Number *</label><input v-model="eExp.chequeNo" class="fc"/></div>
         </div>
         <div class="fl"><label>Notes</label><textarea v-model="eExp.notes" class="fc" rows="2"></textarea></div>
       </div>
@@ -2104,13 +2104,13 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <option value="cash">Cash</option><option value="bank">Bank Transfer</option><option value="cheque">Cheque</option>
         </select>
       </div>
-      <div class="fl" v-if="payMode==='cash'"><label>Cash Account</label>
+      <div class="fl" v-if="payMode==='cash'"><label>Cash Account *</label>
         <select v-model="payCashAcc" class="fc">
           <option value="">— Select —</option>
           <option v-for="a in cas" :key="a._id" :value="a._id">{{a.name}} ({{f(a.currentBalance)}})</option>
         </select>
       </div>
-      <div class="fl" v-if="payMode==='bank'"><label>Bank Account</label>
+      <div class="fl" v-if="payMode==='bank'"><label>Bank Account *</label>
         <select v-model="payBankAcc" class="fc">
           <option value="">— Select —</option>
           <option v-for="a in baccs" :key="a._id" :value="a._id">{{a.name}}</option>
@@ -2342,6 +2342,13 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <div class="fl"><label>Amount *</label><input v-model="eBTx.amount" type="number" step="0.01" class="fc" @blur="eBTx.amount=+eBTx.amount||0"/></div>
           <div class="fl"><label>Cheque No.</label><input v-model="eBTx.chequeNo" class="fc" placeholder="Optional"/></div>
           <div class="fl"><label>Reference</label><input v-model="eBTx.reference" class="fc" placeholder="Optional"/></div>
+        </div>
+        <div class="fl" v-if="eBTx.type!=='transfer'"><label>{{eBTx.type==='deposit'?'Money came from *':'Money went to *'}}</label>
+          <select v-model="eBTx.counter" class="fc">
+            <option value="">— Select —</option>
+            <optgroup label="Cash account (cash banked / cash drawn)"><option v-for="c in cas" :key="c._id" :value="'cash:'+c._id">{{c.name}} ({{f(c.currentBalance)}})</option></optgroup>
+            <optgroup label="Other (ledger account)"><option v-for="a in ledgerAccs.filter(a=>a.active!==false)" :key="a._id" :value="'ledger:'+a.name">{{a.name}} ({{a.type}})</option></optgroup>
+          </select>
         </div>
         <div class="fl"><label>Description *</label><input v-model="eBTx.description" class="fc"/></div>
         <div class="fl" v-if="eBTx.type!=='transfer'"><label>Cleared?</label><select v-model="eBTx.cleared" class="fc"><option :value="true">Cleared</option><option :value="false">Pending / Uncleared</option></select></div>
@@ -2619,8 +2626,8 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
             <div class="fl"><label>Payment Mode</label><select v-model="nInv.paymentMode" class="fc"><option value="cash">Cash</option><option value="bank">Bank Transfer</option><option value="cheque">Cheque</option></select></div>
           </div>
           <div class="fr" style="margin-bottom:10px">
-            <div class="fl" v-if="nInv.paymentMode==='cash'"><label>Cash Account</label><select v-model="nInv.cashAccount" class="fc"><option value="">— Select —</option><option v-for="a in cas" :key="a._id" :value="a._id">{{a.name}} ({{f(a.currentBalance)}})</option></select></div>
-            <div class="fl" v-if="nInv.paymentMode==='bank'"><label>Bank Account</label><select v-model="nInv.bankAccount" class="fc"><option value="">— Select —</option><option v-for="a in baccs" :key="a._id" :value="a._id">{{a.name}}</option></select></div>
+            <div class="fl" v-if="nInv.paymentMode==='cash'"><label>Cash Account{{+nInv.paid>0?' *':''}}</label><select v-model="nInv.cashAccount" class="fc"><option value="">— Select —</option><option v-for="a in cas" :key="a._id" :value="a._id">{{a.name}} ({{f(a.currentBalance)}})</option></select></div>
+            <div class="fl" v-if="nInv.paymentMode==='bank'"><label>Bank Account{{+nInv.paid>0?' *':''}}</label><select v-model="nInv.bankAccount" class="fc"><option value="">— Select —</option><option v-for="a in baccs" :key="a._id" :value="a._id">{{a.name}}</option></select></div>
             <div class="fl" v-if="nInv.paymentMode==='cheque'"><label>Cheque No.</label><input v-model="nInv.chequeNo" class="fc"/></div>
             <div class="fl" v-if="nInv.paymentMode==='cheque'"><label>Cheque / Due Date</label><input v-model="nInv.chequeDate" type="date" class="fc"/></div>
             <div class="fl" v-if="nInv.paymentMode==='cheque'"><label>Drawn On Bank</label><input v-model="nInv.chequeBank" class="fc"/></div>
@@ -2767,7 +2774,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
             <div class="fl"><label>Payment Mode</label><select v-model="nPO.paymentMode" class="fc"><option value="cash">Cash</option><option value="bank">Bank Transfer</option><option value="cheque">Cheque</option></select></div>
           </div>
           <div class="fr" style="margin-bottom:10px" v-if="+nPO.paid>0">
-            <div class="fl" v-if="nPO.paymentMode==='cash'"><label>Cash Account</label><select v-model="nPO.cashAccount" class="fc"><option value="">— Select —</option><option v-for="a in cas" :key="a._id" :value="a._id">{{a.name}} ({{f(a.currentBalance)}})</option></select></div>
+            <div class="fl" v-if="nPO.paymentMode==='cash'"><label>Cash Account *</label><select v-model="nPO.cashAccount" class="fc"><option value="">— Select —</option><option v-for="a in cas" :key="a._id" :value="a._id">{{a.name}} ({{f(a.currentBalance)}})</option></select></div>
             <div class="fl" v-if="nPO.paymentMode==='bank'"><label>Bank Account *</label><select v-model="nPO.bankAccount" class="fc"><option value="">— Select —</option><option v-for="a in baccs" :key="a._id" :value="a._id">{{a.name}} ({{f(a.currentBalance)}})</option></select></div>
             <div class="fl" v-if="nPO.paymentMode==='cheque'"><label>Cheque No. *</label><input v-model="nPO.chequeNo" class="fc"/></div>
           </div>
@@ -3035,13 +3042,13 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
                 <div class="fl"><label>Reference</label><input v-model="newStage.reference" class="fc" placeholder="TT ref / cheque no."/></div>
               </div>
               <div class="fl"><label>Description</label><input v-model="newStage.description" class="fc" placeholder="e.g. TT Payment, Advance, Final Balance"/></div>
-              <div class="fl" v-if="newStage.paymentMode==='cash'"><label>Cash Account</label>
+              <div class="fl" v-if="newStage.paymentMode==='cash'"><label>Cash Account *</label>
                 <select v-model="newStage.cashAccount" class="fc">
                   <option value="">— Select —</option>
                   <option v-for="a in cas" :key="a._id" :value="a._id">{{a.name}} ({{f(a.currentBalance)}})</option>
                 </select>
               </div>
-              <div class="fl" v-if="newStage.paymentMode==='bank'"><label>Bank Account</label>
+              <div class="fl" v-if="newStage.paymentMode==='bank'"><label>Bank Account *</label>
                 <select v-model="newStage.bankAccount" class="fc">
                   <option value="">— Select —</option>
                   <option v-for="a in baccs" :key="a._id" :value="a._id">{{a.name}}</option>

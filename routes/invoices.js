@@ -140,6 +140,8 @@ function invoiceRaiseEntries(inv, breakdown, desc) {
 function paymentError(p) {
   if (!(Number(p.amount) > 0)) return null;
   if (p.paymentMode === 'bank' && !p.bankAccount) return 'Select the bank account the payment went into';
+  if ((p.paymentMode || 'cash') === 'cash' && !p.cashAccount) return 'Select the cash account the payment went into';
+  if (!['cash', 'bank', 'cheque'].includes(p.paymentMode || 'cash')) return 'Choose cash, bank or cheque for the payment';
   if (p.paymentMode === 'cheque' && !p.chequeNo) return 'Cheque number is required for cheque payments';
   return null;
 }
@@ -164,9 +166,10 @@ async function receivePayment(inv, p) {
       reference: inv.invoiceNo, invoice: inv._id, status: 'pending', postedBy: 'invoice'
     });
     account = 'Cheques Receivable'; accountType = 'cheque';
-  } else if (p.cashAccount) {
+  } else {
     const acc = await CashAccount.findByIdAndUpdate(p.cashAccount, { $inc: { currentBalance: pay } });
-    if (acc) account = acc.name;
+    if (!acc) throw new Error('Cash account not found');
+    account = acc.name;
   }
   const base = { date, description: `Payment ${inv.invoiceNo}`, reference: inv.invoiceNo, sourceType: 'invoice', sourceId: inv._id };
   await Ledger.insertMany([
@@ -245,7 +248,7 @@ router.post('/', async (req, res) => {
     data.type = docType;
 
     if (docType === 'invoice') {
-      const pe = paymentError({ amount: data.paid, paymentMode: data.paymentMode, bankAccount: data.bankAccount, chequeNo: data.chequeNo });
+      const pe = paymentError({ amount: data.paid, paymentMode: data.paymentMode, cashAccount: data.cashAccount, bankAccount: data.bankAccount, chequeNo: data.chequeNo });
       if (pe) return res.status(400).json({ error: pe });
     }
 
@@ -638,7 +641,7 @@ router.patch('/:id/payment', async (req, res) => {
     if (inv.type !== 'invoice') return res.status(400).json({ error: 'Payments can only be recorded against invoices' });
     const pay = Math.min(Number(amount) || 0, inv.balance);
     if (!(pay > 0)) return res.status(400).json({ error: 'Amount must be greater than 0 and the invoice must have a balance' });
-    const pe = paymentError({ amount: pay, paymentMode, bankAccount, chequeNo });
+    const pe = paymentError({ amount: pay, paymentMode, cashAccount, bankAccount, chequeNo });
     if (pe) return res.status(400).json({ error: pe });
     inv.paid += pay;
     if (cashAccount) inv.cashAccount = cashAccount;
