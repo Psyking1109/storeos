@@ -1,5 +1,6 @@
 const router = require('express').Router();
-const { requireAuth, requireRole } = require('../middleware/auth');
+const { requireAuth, requirePermission } = require('../middleware/auth');
+const manage = requirePermission('cashAccounts');
 const mongoose = require('mongoose');
 const CashAccount  = require('../models/CashAccount');
 const CashTransfer = require('../models/CashTransfer');
@@ -17,7 +18,7 @@ router.get('/', requireAuth, async (req, res) => {
 });
 
 // POST create cash account
-router.post('/', requireAuth, async (req, res) => {
+router.post('/', requireAuth, manage, async (req, res) => {
   try {
     const acc = new CashAccount(req.body);
     acc.currentBalance = acc.openingBalance || 0;
@@ -27,13 +28,13 @@ router.post('/', requireAuth, async (req, res) => {
 });
 
 // PUT update
-router.put('/:id', requireAuth, async (req, res) => {
+router.put('/:id', requireAuth, manage, async (req, res) => {
   try { res.json(await CashAccount.findByIdAndUpdate(req.params.id, req.body, { new: true })); }
   catch (err) { res.status(400).json({ error: err.message }); }
 });
 
 // DELETE (soft)
-router.delete('/:id', requireAuth, async (req, res) => {
+router.delete('/:id', requireAuth, manage, async (req, res) => {
   try { await CashAccount.findByIdAndUpdate(req.params.id, { active: false }); res.json({ message: 'Deactivated' }); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -41,7 +42,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
 // POST transfer between accounts
 // cash->cash: just update balances, no ledger
 // cash->bank or bank->cash: update balances + create ledger entries
-router.post('/transfer', requireAuth, async (req, res) => {
+router.post('/transfer', requireAuth, manage, async (req, res) => {
   try {
     const { date, fromType, fromId, toType, toId, amount, description, reference } = req.body;
     if (!amount || amount <= 0) return res.status(400).json({ error: 'Amount must be positive' });
@@ -99,7 +100,7 @@ router.post('/transfer', requireAuth, async (req, res) => {
 });
 
 // GET transfer history
-router.get('/transfers', requireAuth, async (req, res) => {
+router.get('/transfers', requireAuth, manage, async (req, res) => {
   try {
     const { from, to } = req.query;
     let q = {};
@@ -108,7 +109,7 @@ router.get('/transfers', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.put('/:id/adjust', requireAuth, async (req, res) => {
+router.put('/:id/adjust', requireAuth, requirePermission('cashAccounts', 'chartOfAccounts', 'ledger'), async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
     const { description } = req.body;
@@ -128,7 +129,7 @@ router.put('/:id/adjust', requireAuth, async (req, res) => {
 
 
 // DELETE a cash account entry - syncs balance across all accounts
-router.delete('/:id/entries/:source/:sourceId', requireAuth, async (req, res) => {
+router.delete('/:id/entries/:source/:sourceId', requireAuth, manage, async (req, res) => {
   try {
     const { id, source, sourceId } = req.params;
     if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(sourceId))
@@ -170,7 +171,7 @@ router.delete('/:id/entries/:source/:sourceId', requireAuth, async (req, res) =>
 });
 
 // PUT update a cash account entry amount/description
-router.put('/:id/entries/:source/:sourceId', requireAuth, async (req, res) => {
+router.put('/:id/entries/:source/:sourceId', requireAuth, manage, async (req, res) => {
   try {
     const { id, source, sourceId } = req.params;
     const { amount, description, date } = req.body;
@@ -227,7 +228,7 @@ router.put('/:id/entries/:source/:sourceId', requireAuth, async (req, res) => {
 module.exports = router;
 
 // GET ledger/statement for a specific cash account
-router.get('/:id/ledger', requireAuth, async (req, res) => {
+router.get('/:id/ledger', requireAuth, manage, async (req, res) => {
   try {
     const { from, to } = req.query;
     const acc = await CashAccount.findById(req.params.id);

@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const mongoose = require('mongoose');
 const InvoiceType = require('../models/InvoiceType');
-const { requireAuth, requireRole } = require('../middleware/auth');
+const { requireAuth, requirePermission } = require('../middleware/auth');
 
 // Generate next invoice number for a given type + date
 async function generateInvoiceNumber(typeId, date) {
@@ -37,7 +37,7 @@ router.get('/', requireAuth, async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.post('/', requireAuth, requirePermission('invoiceSettings'), async (req, res) => {
   try {
     const t = new InvoiceType(req.body);
     await t.save();
@@ -45,12 +45,12 @@ router.post('/', requireAuth, requireRole('admin','manager'), async (req, res) =
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
-router.put('/:id', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.put('/:id', requireAuth, requirePermission('invoiceSettings'), async (req, res) => {
   try { res.json(await InvoiceType.findByIdAndUpdate(req.params.id, req.body, { new: true })); }
   catch (err) { res.status(400).json({ error: err.message }); }
 });
 
-router.delete('/:id', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.delete('/:id', requireAuth, requirePermission('invoiceSettings'), async (req, res) => {
   try { await InvoiceType.findByIdAndUpdate(req.params.id, { active: false }); res.json({ message: 'Deactivated' }); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });

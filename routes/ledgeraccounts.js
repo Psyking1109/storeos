@@ -2,6 +2,8 @@ const router        = require('express').Router();
 const LedgerAccount = require('../models/LedgerAccount');
 const Ledger        = require('../models/Ledger');
 const mongoose      = require('mongoose');
+const { requirePermission } = require('../middleware/auth');
+const coa = requirePermission('chartOfAccounts');
 
 // Seed default system accounts — called after mongoose connects
 async function seedLedgerAccounts() {
@@ -42,7 +44,7 @@ const TB_TYPE = {
   equity:'equity',
 };
 
-router.get('/reports/trial-balance', async (req, res) => {
+router.get('/reports/trial-balance', requirePermission('trialBalance', 'chartOfAccounts'), async (req, res) => {
   try {
     // Optional "as at" date: only entries up to the end of that day (opening balances always apply)
     const match = {};
@@ -103,7 +105,7 @@ router.get('/reports/trial-balance', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', coa, async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
     const account = await LedgerAccount.findById(req.params.id);
@@ -130,12 +132,12 @@ router.get('/:id', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requirePermission('chartOfAccounts', 'taxRates'), async (req, res) => {
   try { const acc = new LedgerAccount(req.body); await acc.save(); res.status(201).json(acc); }
   catch(e) { res.status(400).json({ error: e.message }); }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', coa, async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
     const acc = await LedgerAccount.findById(req.params.id);
@@ -147,7 +149,7 @@ router.put('/:id', async (req, res) => {
   } catch(e) { res.status(400).json({ error: e.message }); }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', coa, async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
     const acc = await LedgerAccount.findById(req.params.id);
@@ -159,7 +161,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // DELETE a ledger entry
-router.delete('/entries/:entryId', async (req, res) => {
+router.delete('/entries/:entryId', coa, async (req, res) => {
   try {
     const mongoose = require('mongoose');
     if (!mongoose.isValidObjectId(req.params.entryId))
@@ -174,7 +176,7 @@ router.delete('/entries/:entryId', async (req, res) => {
 });
 
 // PUT update a ledger entry (manual only)
-router.put('/entries/:entryId', async (req, res) => {
+router.put('/entries/:entryId', coa, async (req, res) => {
   try {
     const mongoose = require('mongoose');
     if (!mongoose.isValidObjectId(req.params.entryId))
@@ -195,7 +197,7 @@ router.put('/entries/:entryId', async (req, res) => {
 });
 
 // POST manual journal entry directly to an account
-router.post('/:id/entries', async (req, res) => {
+router.post('/:id/entries', coa, async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id))
       return res.status(400).json({ error: 'Invalid ID' });

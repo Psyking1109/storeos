@@ -9,7 +9,7 @@ const TaxSettlement = require('../models/TaxSettlement');
 const CashAccount = require('../models/CashAccount');
 const BankAccount = require('../models/BankAccount');
 const CashEntry = require('../models/CashEntry');
-const { requireAuth, requireRole } = require('../middleware/auth');
+const { requireAuth, requirePermission } = require('../middleware/auth');
 const { ROW_TYPE } = require('../utils/taxAccounts');
 
 // Tax account rules: account always required; costAccount required for claimable and business
@@ -39,13 +39,13 @@ router.get('/', requireAuth, async (req, res) => {
 });
 
 // GET all including inactive
-router.get('/all', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.get('/all', requireAuth, requirePermission('taxRates'), async (req, res) => {
   try { res.json(await TaxRate.find().sort({ code: 1 })); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // POST create
-router.post('/', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.post('/', requireAuth, requirePermission('taxRates'), async (req, res) => {
   try {
     if (!req.body.code) return res.status(400).json({ error: 'Code required' });
     req.body.code = req.body.code.toUpperCase().trim().replace(/\s+/g, '_');
@@ -59,7 +59,7 @@ router.post('/', requireAuth, requireRole('admin','manager'), async (req, res) =
 });
 
 // PUT update
-router.put('/:id', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.put('/:id', requireAuth, requirePermission('taxRates'), async (req, res) => {
   try {
     const cur = await TaxRate.findById(req.params.id);
     if (!cur) return res.status(404).json({ error: 'Not found' });
@@ -75,7 +75,7 @@ router.put('/:id', requireAuth, requireRole('admin','manager'), async (req, res)
 });
 
 // DELETE soft-delete
-router.delete('/:id', requireAuth, requireRole('admin'), async (req, res) => {
+router.delete('/:id', requireAuth, requirePermission('taxRates'), async (req, res) => {
   try {
     await TaxRate.findByIdAndUpdate(req.params.id, { active: false });
     res.json({ message: 'Deactivated' });
@@ -84,7 +84,7 @@ router.delete('/:id', requireAuth, requireRole('admin'), async (req, res) => {
 
 // ── DYNAMIC TAX REPORT ──────────────────────────────────────────────────────
 // Returns per-tax breakdown for ALL user-defined taxes (no hardcoded VAT/SSCL/PAL)
-router.get('/report', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.get('/report', requireAuth, requirePermission('taxReport'), async (req, res) => {
   try {
     const { from, to } = req.query;
     let df = {};
@@ -175,7 +175,7 @@ router.get('/report', requireAuth, requireRole('admin','manager'), async (req, r
 
 // ── TAX DETAIL DRILL-DOWN ──────────────────────────────────────────────────
 // Returns all invoices/purchases that contributed to a specific tax code
-router.get('/detail/:code', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.get('/detail/:code', requireAuth, requirePermission('taxReport', 'monthlyTax'), async (req, res) => {
   try {
     const { code } = req.params;
     const { from, to } = req.query;
@@ -228,7 +228,7 @@ router.get('/detail/:code', requireAuth, requireRole('admin','manager'), async (
 });
 
 // GET monthly tax summary - dynamic per-tax
-router.get('/monthly', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.get('/monthly', requireAuth, requirePermission('monthlyTax'), async (req, res) => {
   try {
     const { year } = req.query;
     const y = parseInt(year) || new Date().getFullYear();
@@ -337,18 +337,18 @@ async function taxAccountSummary(to) {
   });
 }
 
-router.get('/accounts', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.get('/accounts', requireAuth, requirePermission('taxReport'), async (req, res) => {
   try { res.json(await taxAccountSummary(req.query.to)); }
   catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
-router.get('/settlements', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.get('/settlements', requireAuth, requirePermission('taxReport'), async (req, res) => {
   try { res.json(await TaxSettlement.find().sort({ date: -1, createdAt: -1 }).limit(200)); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // POST pay a tax balance (you owe) or receive a refund (refund due). Partial amounts are fine.
-router.post('/settle', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.post('/settle', requireAuth, requirePermission('taxReport'), async (req, res) => {
   try {
     const { account, paymentMode, cashAccount, bankAccount, reference, note } = req.body;
     const amount = Math.round((Number(req.body.amount) || 0) * 100) / 100;
@@ -397,7 +397,7 @@ router.post('/settle', requireAuth, requireRole('admin','manager'), async (req, 
 });
 
 // DELETE undo a tax payment / refund: money back, cash entry and ledger rows removed
-router.delete('/settle/:id', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.delete('/settle/:id', requireAuth, requirePermission('taxReport'), async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
     const st = await TaxSettlement.findById(req.params.id);

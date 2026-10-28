@@ -11,13 +11,23 @@ const me=ref(JSON.parse(localStorage.getItem('sos_me')||'null'));
 const lf=ref({u:'',p:''});const lerr=ref('');const lding=ref(false);const spwd=ref(false);
 const pw=ref({cur:'',nw:'',cf:''});const pwErr=ref('');const pwOk=ref('');
 function can(r){const o=['viewer','cashier','manager','admin'];return o.indexOf(me.value?.role)>=o.indexOf(r);}
+// What this user may use — worked out by the server (Users screen switches, or the role's preset)
+function perm(k){return me.value?.role==='admin'||me.value?.effectivePermissions?.[k]===true;}
+// Page → permission it needs (prof is always allowed; Company is admin only)
+const PAGE_PERM={dash:'dashboard',inv:'invoices',pro:'invoices',undel:'invoices',cust:'customers',po:'purchases',sup:'suppliers',
+  stk:'inventory',cat:'inventory',cash:'cashAccounts',exp:'expenses',bank:'banking',recon:'banking',chq:'cheques',led:'ledger',
+  laccs:'chartOfAccounts',tbal:'trialBalance',txacc:'taxReport',drpt:'dailyReport',taxr:'taxReport',taxm:'monthlyTax',
+  invt:'invoiceSettings',loc:'locations',txrt:'taxRates',usr:'userManagement'};
+function canPage(p){if(p==='cosettings')return can('admin');const k=PAGE_PERM[p];return !k||perm(k);}
+function firstPage(){return Object.keys(PAGE_PERM).find(canPage)||'prof';}
+async function refreshMe(){try{const u=await api('GET','/auth/me');me.value=u;localStorage.setItem('sos_me',JSON.stringify(u));if(!canPage(pg.value))pg.value=firstPage();}catch(e){}}
 async function login(){
   lerr.value='';if(!lf.value.u||!lf.value.p){lerr.value='Enter username and password';return;}
   lding.value=true;
   try{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:lf.value.u,password:lf.value.p})});
     const data=await r.json();if(!r.ok){lerr.value=data.error||'Login failed';lding.value=false;return;}
     tok.value=data.token;me.value=data.user;localStorage.setItem('sos_tok',data.token);localStorage.setItem('sos_me',JSON.stringify(data.user));
-    lf.value={u:'',p:''};loadDash();loadTxRates();loadCas();loadInvTypes();loadLocs();loadSavedCats();loadCats();loadCoSettings();
+    lf.value={u:'',p:''};pg.value=canPage('dash')?'dash':firstPage();if(perm('dashboard'))loadDash();loadTxRates();loadCas();loadInvTypes();loadLocs();loadSavedCats();loadCats();loadCoSettings();
   }catch(e){lerr.value='Connection error. Is the server running?';}
   lding.value=false;
 }
@@ -749,6 +759,7 @@ const eProd=ref({});const eStk=ref({});const eCust=ref({});const eSupp=ref({});
 const eCA=ref({});const eXfer=ref({});const eExp=ref({});
 const eTxRate=ref({});const eInvType=ref({});const eLoc=ref({});const eUser=ref({});
 const PERM_GROUPS=[
+  {label:'Main',keys:[['dashboard','Dashboard']]},
   {label:'Sales',keys:[['invoices','Invoices'],['customers','Customers']]},
   {label:'Purchasing',keys:[['purchases','Purchases'],['suppliers','Suppliers']]},
   {label:'Stock',keys:[['inventory','Inventory']]},
@@ -872,6 +883,7 @@ function toggleRptRow(idx){
 async function loadRpt(){if(!rptDate.value)return;expandedRptRows.value=new Set();try{rpt.value=await api('GET','/ledger/daily-cash-report?date='+rptDate.value);}catch(e){alert(e.message);}}
 async function loadStmt(){try{const q='from='+stmtFr.value+'&to='+stmtTo.value;const r=await api('GET','/banking/accounts/'+stmtAcc.value._id+'/statement?'+q);stmtRows.value=r.rows||[];stmtInfo.value=r;}catch(e){alert(e.message);}}
 watch(pg,async p=>{
+  if(!canPage(p)){pg.value=firstPage();return;}   // switched off in Users: never show the page
   if(p==='dash')loadDash();
   if(p==='stk'){loadProds();loadCats();loadSavedCats();loadTxRates();loadLocs();}
   if(p==='cat'){loadSavedCats();}
@@ -1218,14 +1230,22 @@ function openLoc(l){eLoc.value=l?{...l}:{name:'',code:'',description:''};mLoc.va
 async function saveLoc(){if(!eLoc.value.name){alert('Name required');return;}saving.value=true;try{if(eLoc.value._id)await api('PUT','/locations/'+eLoc.value._id,eLoc.value);else await api('POST','/locations',eLoc.value);mLoc.value=false;loadLocs();}catch(e){alert(e.message);}saving.value=false;}
 function openUser(u){
   if(u){
-    eUser.value={...u,newPwd:'',permissions:{...(ROLE_DEFAULTS[u.role]||ROLE_DEFAULTS.cashier),...(u.permissions||{})}};
+    eUser.value={...u,newPwd:'',permissions:{...(u.effectivePermissions||{...(ROLE_DEFAULTS[u.role]||ROLE_DEFAULTS.cashier),...(u.permissions||{})})}};
   }else{
     eUser.value={name:'',username:'',role:'cashier',newPwd:'',permissions:{...ROLE_DEFAULTS.cashier}};
   }
   mErr.value='';mUser.value=true;
 }
-async function saveUser(){if(!eUser.value.name){mErr.value='Name required';return;}if(!eUser.value._id&&!eUser.value.newPwd){mErr.value='Password required for new users';return;}saving.value=true;mErr.value='';try{if(eUser.value._id)await api('PUT','/auth/users/'+eUser.value._id,eUser.value);else await api('POST','/auth/users',{...eUser.value,password:eUser.value.newPwd});mUser.value=false;loadUsers();}catch(e){mErr.value=e.message;}saving.value=false;}
-async function disableUser(id){if(!confirm('Disable this user?'))return;try{await api('PUT','/auth/users/'+id,{active:false});loadUsers();}catch(e){alert(e.message);}}
+async function saveUser(){if(!eUser.value.name){mErr.value='Name required';return;}if(!eUser.value._id&&!eUser.value.newPwd){mErr.value='Password required for new users';return;}saving.value=true;mErr.value='';try{if(!eUser.value.username||!eUser.value.username.trim()){throw new Error('Username required');}
+    const body={...eUser.value,username:eUser.value.username.trim().toLowerCase()};delete body.effectivePermissions;
+    if(body._id)await api('PUT','/auth/users/'+body._id,{...body,newPassword:body.newPwd||undefined});else await api('POST','/auth/users',{...body,password:body.newPwd});
+    mUser.value=false;loadUsers();if(body._id===me.value?._id)refreshMe();}catch(e){mErr.value=e.message;}saving.value=false;}
+async function disableUser(id){if(!confirm('Disable this user? They can no longer sign in, but everything they did stays.'))return;try{await api('PUT','/auth/users/'+id,{active:false});loadUsers();}catch(e){alert(e.message);}}
+async function enableUser(id){try{await api('PUT','/auth/users/'+id,{active:true});loadUsers();}catch(e){alert(e.message);}}
+async function deleteUser(u){
+  if(!confirm('Delete user "'+u.name+'" ('+u.username+') permanently? This can\'t be undone. To only stop them signing in, use Disable.'))return;
+  try{await api('DELETE','/auth/users/'+u._id);loadUsers();}catch(e){alert(e.message);}
+}
 
 // ── CASH ACCOUNT LEDGER ────────────────────────────────────────────────────
 async function viewCashLedger(a){cashLedgerAcc.value=a;cashLedFr.value='';cashLedTo.value='';await loadCashLedger();}
@@ -1715,7 +1735,7 @@ function openReconForAccount(acc){
   loadReconSummary();
 }
 
-onMounted(()=>{if(tok.value){loadDash();loadTxRates();loadCas();loadInvTypes();loadLocs();loadSavedCats();loadCats();loadCoSettings();}});
+onMounted(()=>{if(tok.value){refreshMe().then(()=>{if(perm('dashboard'))loadDash();});loadTxRates();loadCas();loadInvTypes();loadLocs();loadSavedCats();loadCats();loadCoSettings();}});
 return{tok,me,lf,lerr,lding,spwd,pw,pwErr,pwOk,can,login,logout,changePw,
 pg,saving,mErr,dash,prods,invs,pos,custs,supps,cats,txRates,allTxRates,taxRpt,users,invTypes,locs,
 cas,xfers,exps,exSumm,expCats,baccs,btxs,btab,btf,chqs,chqf,
@@ -1736,7 +1756,7 @@ openBAcc,saveBAcc,openBTx,saveBTx,delBTx,viewStmt,loadStmt,loadBTxs,mStockMoveme
 openChq,saveChq,qChqSts,saveChqSts,delChq,loadProds,loadPOs,loadChqs,n,pickChqParty,mChqEnd,eEnd,endPOs,openEndorse,loadEndPOs,saveEndorse,reverseEndorse,payChqDate,payChqBank,payChqDrawer,
 openTxRate,saveTxRate,disableTxRate,purchaseTaxes,lcDirect,ecPrev,ecRate,ecCurrency,ecPickKind,ecPickTax,ecSetForeign,lcLabel,mNewAcc,eNewAcc,newAccErr,txAccPick,saveNewAcc,
 txAccs,txAccTo,txSettles,mTxPay,eTxPay,loadTxAccs,txBalLabel,openTxPay,saveTxPay,undoTxSettle,txAccStatement,openInvType,saveInvType,delInvType,mTaxDetail,taxDetailData,openTaxDetail,
-openLoc,saveLoc,openUser,saveUser,disableUser,viewCashLedger,loadCashLedger,cashLedgerAcc,cashLedRows,cashLedFr,cashLedTo,selectedCashRow,mEditCashEntry,eCashEntry,editCashEntry,saveCashEntry,delCashEntry,addTaxToInvType,applyInvTypeTaxConfig,toggleInvTypeTax,
+openLoc,saveLoc,openUser,saveUser,disableUser,enableUser,deleteUser,perm,canPage,viewCashLedger,loadCashLedger,cashLedgerAcc,cashLedRows,cashLedFr,cashLedTo,selectedCashRow,mEditCashEntry,eCashEntry,editCashEntry,saveCashEntry,delCashEntry,addTaxToInvType,applyInvTypeTaxConfig,toggleInvTypeTax,
 loadLed,loadAccLed,loadTaxRpt,loadTaxMonthly,loadRpt,expandedRptRows,toggleRptRow,loadInvs,loadExps,mCat,eCat,savedCats,pCatFilter,saveCat,delCat,prodsByCategory,mQuickProd,openQuickProd,saveQuickProd,toggleLooseMode,
 commitSummary,loadCommitSummary,proformaQty,undeliveredQty,onOrderQty,availForSale,mCommitDrill,commitDrillTitle,commitDrillRows,commitDrillKind,openCommitDrill,openCommitDrillDoc,
 irdSettings,irdSettingsErr,savingIrd,loadIrdSettings,previewIrdNumber,saveIrdSettings,

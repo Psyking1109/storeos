@@ -2,7 +2,7 @@ const router = require('express').Router();
 const mongoose = require('mongoose');
 const Product       = require('../models/Product');
 const StoreLocation = require('../models/StoreLocation');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requirePermission } = require('../middleware/auth');
 
 router.get('/', requireAuth, async (req, res) => {
   try {
@@ -95,7 +95,7 @@ router.get('/:id', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/', requireAuth, async (req, res) => {
+router.post('/', requireAuth, requirePermission('inventory', 'purchases'), async (req, res) => {
   try {
     const product = new Product(req.body);
     await product.save();
@@ -103,7 +103,7 @@ router.post('/', requireAuth, async (req, res) => {
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
-router.put('/:id', requireAuth, async (req, res) => {
+router.put('/:id', requireAuth, requirePermission('inventory'), async (req, res) => {
   try {
     const data = req.body;
     // Resolve location names for locationStock
@@ -134,7 +134,7 @@ router.patch('/:id/stock', requireAuth, async (req, res) => {
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
-router.delete('/:id', requireAuth, async (req, res) => {
+router.delete('/:id', requireAuth, requirePermission('inventory'), async (req, res) => {
   try {
     await Product.findByIdAndUpdate(req.params.id, { active: false });
     res.json({ message: 'Product deactivated' });

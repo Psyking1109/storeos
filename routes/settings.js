@@ -23,9 +23,19 @@ router.get('/', async (req, res) => {
 });
 
 // PUT update settings — accepts IRD fields and/or company fields independently
+const { effectivePermissions } = require('../middleware/auth');
+const COMPANY_FIELDS = ['companyName','tin','vrn','phone','fax','email','address','website','footer','logoData','defaultLandingCostAccount'];
+
 router.put('/', async (req, res) => {
   try {
     const update = {};
+    // Invoice numbering and layout belong to Invoice Settings; company details are admin only
+    const eff = effectivePermissions(req.user);
+    const touches = keys => keys.some(k => req.body[k] !== undefined);
+    if (touches(['irdNumberingEnabled', 'irdBranchCode', 'invoiceLayout']) && !eff.invoiceSettings)
+      return res.status(403).json({ error: 'You don\'t have access to Invoice Settings.' });
+    if (touches(COMPANY_FIELDS) && req.user.role !== 'admin')
+      return res.status(403).json({ error: 'Only an admin can change company settings.' });
 
     // IRD settings (only touched when explicitly sent)
     if (req.body.irdNumberingEnabled !== undefined || req.body.irdBranchCode !== undefined) {

@@ -72,19 +72,32 @@ function requireRole(...roles) {
   };
 }
 
-// Permission-based guard factory
-// Admins always pass; non-admins must have the permission explicitly set (or inherit from role preset)
-function requirePermission(key) {
-  return (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-    if (req.user.role === 'admin') return next();
-    const perms = req.user.permissions;
-    const effective = hasCustomPermissions(perms)
-      ? (perms.toObject ? perms.toObject() : perms)
-      : (ROLE_PRESETS[req.user.role] || ROLE_PRESETS.viewer);
-    if (effective[key] === true) return next();
-    return res.status(403).json({ error: 'Permission denied' });
-  };
+// What a user can actually use: admins everything; others their own switches (Users screen),
+// or their role's preset if none were ever set. The screen uses the same object (GET /auth/me).
+function effectivePermissions(user) {
+  if (!user) return {};
+  if (user.role === 'admin') return { ...ROLE_PRESETS.admin };
+  const perms = user.permissions;
+  const own = hasCustomPermissions(perms) ? (perms.toObject ? perms.toObject() : perms) : (ROLE_PRESETS[user.role] || ROLE_PRESETS.viewer);
+  const out = {};
+  for (const k of Object.keys(ROLE_PRESETS.admin)) out[k] = own[k] === true;
+  return out;
 }
 
-module.exports = { requireAuth, requireRole, requirePermission, JWT_SECRET, ROLE_PRESETS };
+// Permission guard: passes if the user has ANY of the given permissions
+function requirePermission(...keys) {
+  const need = keys.flat();
+  return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+    const eff = effectivePermissions(req.user);
+    if (need.some(k => eff[k] === true)) return next();
+    return res.status(403).json({ error: 'You don\'t have access to this. Ask an admin to turn it on in Users.' });
+  };
+}
+// Lists other screens need (customers, products, cash accounts…) stay readable; changes need the permission
+function permissionForChanges(...keys) {
+  const guard = requirePermission(...keys);
+  return (req, res, next) => (req.method === 'GET' ? next() : guard(req, res, next));
+}
+
+module.exports = { requireAuth, requireRole, requirePermission, permissionForChanges, effectivePermissions, JWT_SECRET, ROLE_PRESETS };

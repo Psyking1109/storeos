@@ -5,7 +5,7 @@ const cors     = require('cors');
 const compression = require('compression');
 const path     = require('path');
 const fs       = require('fs');
-const { requireAuth, requireRole, requirePermission } = require('./middleware/auth');
+const { requireAuth, requireRole, requirePermission, permissionForChanges } = require('./middleware/auth');
 
 const app = express();
 app.use(cors());
@@ -67,16 +67,17 @@ seedAdmin();
 // API Routes — public
 app.use('/api/auth', require('./routes/auth'));
 
-// API Routes — authenticated (products/categories/tax/customers shared internally, no extra gate)
-app.use('/api/categories',     requireAuth, require('./routes/categories'));
+// API Routes — shared lists (other screens need them) are readable by anyone signed in;
+// changing them needs the matching permission from Users. Finer checks live in the route files.
+app.use('/api/categories',     requireAuth, permissionForChanges('inventory'), require('./routes/categories'));
 app.use('/api/products',       requireAuth, require('./routes/products'));
-app.use('/api/customers',      requireAuth, require('./routes/customers'));
+app.use('/api/customers',      requireAuth, permissionForChanges('customers'), require('./routes/customers'));
 app.use('/api/tax',            requireAuth, require('./routes/tax'));
-app.use('/api/locations',      requireAuth, require('./routes/locations'));
-app.use('/api/invoice-types',  requireAuth, require('./routes/invoicetypes'));
+app.use('/api/locations',      requireAuth, permissionForChanges('locations'), require('./routes/locations'));
+app.use('/api/invoice-types',  requireAuth, permissionForChanges('invoiceSettings'), require('./routes/invoicetypes'));
 app.use('/api/cash-accounts',  requireAuth, require('./routes/cashaccounts'));
-app.use('/api/cash',           requireAuth, require('./routes/cash'));
-app.use('/api/dashboard',      requireAuth, require('./routes/dashboard'));
+app.use('/api/cash',           requireAuth, requirePermission('cashAccounts'), require('./routes/cash'));
+app.use('/api/dashboard',      requireAuth, requirePermission('dashboard'), require('./routes/dashboard'));
 app.use('/api/settings',       requireAuth, require('./routes/settings'));
 
 // Permission-gated routes
@@ -86,8 +87,8 @@ app.use('/api/purchases',       requireAuth, requirePermission('purchases'),    
 app.use('/api/suppliers',       requireAuth, requirePermission('suppliers'),      require('./routes/suppliers'));
 app.use('/api/banking',         requireAuth, requirePermission('banking'),        require('./routes/banking'));
 app.use('/api/cheques',         requireAuth, requirePermission('cheques'),        require('./routes/cheques'));
-app.use('/api/ledger',          requireAuth, requirePermission('ledger'),         require('./routes/ledger'));
-app.use('/api/ledger-accounts',   requireAuth, requirePermission('chartOfAccounts'), require('./routes/ledgeraccounts'));
+app.use('/api/ledger',          requireAuth, require('./routes/ledger'));            // per-route checks
+app.use('/api/ledger-accounts',   requireAuth, require('./routes/ledgeraccounts'));  // per-route checks
 app.use('/api/reconciliation',    requireAuth, requirePermission('banking'),        require('./routes/reconciliation'));
 
 // SPA fallback — serve index.html for all non-API routes.

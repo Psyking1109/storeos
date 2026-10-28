@@ -187,48 +187,45 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       {{isDark?'☀️':'🌙'}}
     </button>
   </div>
-  <div class="ns"><div class="nl">Main</div>
+  <!-- Each item shows only if the user has that permission (Users screen); the server checks it too -->
+  <div class="ns" v-if="perm('dashboard')"><div class="nl">Main</div>
     <div class="ni" :class="{active:pg==='dash'}" @click="pg='dash'"><span class="ic">⬡</span>Dashboard</div>
   </div>
-  <div class="ns"><div class="nl">Sales</div>
+  <div class="ns" v-if="perm('invoices')||perm('customers')"><div class="nl">Sales</div>
+    <template v-if="perm('invoices')">
     <div class="ni" :class="{active:pg==='inv'}"  @click="pg='inv'"><span class="ic">📋</span>Invoices</div>
     <div class="ni" :class="{active:pg==='pro'}"  @click="pg='pro'"><span class="ic">📝</span>Proformas</div>
     <div class="ni" :class="{active:pg==='undel'}" @click="pg='undel'"><span class="ic">🚚</span>Undelivered</div>
-    <div class="ni" :class="{active:pg==='cust'}" @click="pg='cust'"><span class="ic">👥</span>Customers</div>
+    </template>
+    <div class="ni" v-if="perm('customers')" :class="{active:pg==='cust'}" @click="pg='cust'"><span class="ic">👥</span>Customers</div>
   </div>
-  <template v-if="can('manager')">
-  <div class="ns"><div class="nl">Purchasing</div>
-    <div class="ni" :class="{active:pg==='po'}"   @click="pg='po'"><span class="ic">🛒</span>Purchases</div>
-    <div class="ni" :class="{active:pg==='sup'}"  @click="pg='sup'"><span class="ic">🏭</span>Suppliers</div>
+  <div class="ns" v-if="perm('purchases')||perm('suppliers')"><div class="nl">Purchasing</div>
+    <div class="ni" v-if="perm('purchases')" :class="{active:pg==='po'}"   @click="pg='po'"><span class="ic">🛒</span>Purchases</div>
+    <div class="ni" v-if="perm('suppliers')" :class="{active:pg==='sup'}"  @click="pg='sup'"><span class="ic">🏭</span>Suppliers</div>
   </div>
-  </template>
-  <div class="ns"><div class="nl">Stock</div>
+  <div class="ns" v-if="perm('inventory')"><div class="nl">Stock</div>
     <div class="ni" :class="{active:pg==='stk'}"  @click="pg='stk'"><span class="ic">📦</span>Inventory<span v-if="lowStock>0" class="nbadge">{{lowStock}}</span></div>
     <div class="ni" :class="{active:pg==='cat'}"  @click="pg='cat'"><span class="ic">🏷</span>Categories</div>
   </div>
-  <div class="ns"><div class="nl">Accounts</div>
-    <div class="ni" :class="{active:pg==='cash'}" @click="pg='cash'"><span class="ic">💵</span>Cash Accounts</div>
-    <div class="ni" :class="{active:pg==='exp'}"  @click="pg='exp'"><span class="ic">💸</span>Expenses</div>
-    <template v-if="can('manager')">
-    <div class="ni" :class="{active:pg==='bank'||pg==='recon'}" @click="pg='bank'"><span class="ic">🏦</span>Banking</div>
-    <div class="ni" :class="{active:pg==='chq'}"  @click="pg='chq'"><span class="ic">🧾</span>Cheques<span v-if="pendChq>0" class="nbadge">{{pendChq}}</span></div>
-    <div class="ni" :class="{active:pg==='led'}"  @click="pg='led'"><span class="ic">📒</span>Ledger</div>
-    <div class="ni" :class="{active:pg==='laccs'}" @click="pg='laccs';loadLedgerAccs()"><span class="ic">📋</span>Chart of Accounts</div>
-    <div class="ni" :class="{active:pg==='tbal'}"  @click="pg='tbal';loadTrialBalance()"><span class="ic">⚖️</span>Trial Balance</div>
-    <div class="ni" :class="{active:pg==='txacc'}" @click="pg='txacc'"><span class="ic">🧾</span>Tax Accounts</div>
-    <div class="ni" :class="{active:pg==='drpt'}" @click="pg='drpt'"><span class="ic">📊</span>Daily Report</div>
-    <div class="ni" :class="{active:pg==='taxr'}" @click="pg='taxr'"><span class="ic">🧮</span>Tax Report</div>
-    <div class="ni" :class="{active:pg==='taxm'}" @click="pg='taxm'"><span class="ic">📅</span>Monthly Tax</div>
-    </template>
+  <div class="ns" v-if="['cashAccounts','expenses','banking','cheques','ledger','chartOfAccounts','trialBalance','taxReport','dailyReport','monthlyTax'].some(perm)"><div class="nl">Accounts</div>
+    <div class="ni" v-if="perm('cashAccounts')" :class="{active:pg==='cash'}" @click="pg='cash'"><span class="ic">💵</span>Cash Accounts</div>
+    <div class="ni" v-if="perm('expenses')" :class="{active:pg==='exp'}"  @click="pg='exp'"><span class="ic">💸</span>Expenses</div>
+    <div class="ni" v-if="perm('banking')" :class="{active:pg==='bank'||pg==='recon'}" @click="pg='bank'"><span class="ic">🏦</span>Banking</div>
+    <div class="ni" v-if="perm('cheques')" :class="{active:pg==='chq'}"  @click="pg='chq'"><span class="ic">🧾</span>Cheques<span v-if="pendChq>0" class="nbadge">{{pendChq}}</span></div>
+    <div class="ni" v-if="perm('ledger')" :class="{active:pg==='led'}"  @click="pg='led'"><span class="ic">📒</span>Ledger</div>
+    <div class="ni" v-if="perm('chartOfAccounts')" :class="{active:pg==='laccs'}" @click="pg='laccs';loadLedgerAccs()"><span class="ic">📋</span>Chart of Accounts</div>
+    <div class="ni" v-if="perm('trialBalance')" :class="{active:pg==='tbal'}"  @click="pg='tbal';loadTrialBalance()"><span class="ic">⚖️</span>Trial Balance</div>
+    <div class="ni" v-if="perm('taxReport')" :class="{active:pg==='txacc'}" @click="pg='txacc'"><span class="ic">🧾</span>Tax Accounts</div>
+    <div class="ni" v-if="perm('dailyReport')" :class="{active:pg==='drpt'}" @click="pg='drpt'"><span class="ic">📊</span>Daily Report</div>
+    <div class="ni" v-if="perm('taxReport')" :class="{active:pg==='taxr'}" @click="pg='taxr'"><span class="ic">🧮</span>Tax Report</div>
+    <div class="ni" v-if="perm('monthlyTax')" :class="{active:pg==='taxm'}" @click="pg='taxm'"><span class="ic">📅</span>Monthly Tax</div>
   </div>
-  <div class="ns"><div class="nl">Setup</div>
-    <div class="ni" :class="{active:pg==='invt'}" @click="pg='invt'"><span class="ic">🔢</span>Invoice Settings</div>
-    <div class="ni" :class="{active:pg==='loc'}"  @click="pg='loc'"><span class="ic">🏪</span>Locations</div>
-    <template v-if="can('manager')">
-    <div class="ni" :class="{active:pg==='txrt'}" @click="pg='txrt'"><span class="ic">🏷</span>Tax Rates</div>
-    <div class="ni" v-if="can('admin')" :class="{active:pg==='usr'}" @click="pg='usr'"><span class="ic">👤</span>Users</div>
+  <div class="ns" v-if="['invoiceSettings','locations','taxRates','userManagement'].some(perm)||can('admin')"><div class="nl">Setup</div>
+    <div class="ni" v-if="perm('invoiceSettings')" :class="{active:pg==='invt'}" @click="pg='invt'"><span class="ic">🔢</span>Invoice Settings</div>
+    <div class="ni" v-if="perm('locations')" :class="{active:pg==='loc'}"  @click="pg='loc'"><span class="ic">🏪</span>Locations</div>
+    <div class="ni" v-if="perm('taxRates')" :class="{active:pg==='txrt'}" @click="pg='txrt'"><span class="ic">🏷</span>Tax Rates</div>
+    <div class="ni" v-if="perm('userManagement')" :class="{active:pg==='usr'}" @click="pg='usr'"><span class="ic">👤</span>Users</div>
     <div class="ni" v-if="can('admin')" :class="{active:pg==='cosettings'}" @click="pg='cosettings'"><span class="ic">🏢</span>Company</div>
-    </template>
   </div>
   <div class="sb-foot">
     <div class="upill" @click="pg='prof'">
@@ -1504,7 +1501,9 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <td><span class="badge" :class="u.active?'bact':'bina'">{{u.active?'Active':'Inactive'}}</span></td>
           <td><div class="fx g6">
             <button class="btn btn-o btn-sm" @click="openUser(u)">Edit</button>
-            <button v-if="u.active&&u._id!==me?._id" class="btn btn-d btn-sm" @click="disableUser(u._id)">Disable</button>
+            <button v-if="u.active&&u._id!==me?._id" class="btn btn-o btn-sm" @click="disableUser(u._id)">Disable</button>
+            <button v-if="!u.active" class="btn btn-o btn-sm" @click="enableUser(u._id)">Enable</button>
+            <button v-if="u._id!==me?._id" class="btn btn-d btn-sm" @click="deleteUser(u)">Delete</button>
           </div></td>
         </tr>
         <tr v-if="!users.length"><td colspan="6" class="emp"><div class="eic">👤</div><div>No users</div></td></tr>
@@ -2455,7 +2454,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       <div class="fg">
         <div class="fr">
           <div class="fl"><label>Full Name *</label><input v-model="eUser.name" class="fc"/></div>
-          <div class="fl"><label>Username *</label><input v-model="eUser.username" class="fc" :disabled="!!eUser._id"/></div>
+          <div class="fl"><label>Username *</label><input v-model="eUser.username" class="fc" autocapitalize="off" autocomplete="off"/></div>
         </div>
         <div class="fl"><label>Role *</label>
           <select v-model="eUser.role" class="fc" @change="applyRoleDefaults">

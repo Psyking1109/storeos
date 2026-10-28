@@ -7,10 +7,10 @@ const Purchase     = require('../models/Purchase');
 const Expense      = require('../models/Expense');
 const Cheque       = require('../models/Cheque');
 const CashTransfer = require('../models/CashTransfer');
-const { requireAuth, requireRole } = require('../middleware/auth');
+const { requireAuth, requirePermission } = require('../middleware/auth');
 
 // GET daily ledger
-router.get('/daily', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.get('/daily', requireAuth, requirePermission('ledger'), async (req, res) => {
   try {
     const { from, to } = req.query;
     let mf = {};
@@ -29,7 +29,7 @@ router.get('/daily', requireAuth, requireRole('admin','manager'), async (req, re
 });
 
 // GET trial balance
-router.get('/trial-balance', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.get('/trial-balance', requireAuth, requirePermission('ledger', 'trialBalance'), async (req, res) => {
   try {
     const { from, to } = req.query;
     let mf = {};
@@ -47,7 +47,7 @@ router.get('/trial-balance', requireAuth, requireRole('admin','manager'), async 
 });
 
 // GET books check: documents whose own ledger rows don't balance, plus legacy generic rows
-router.get('/health', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.get('/health', requireAuth, requirePermission('ledger', 'trialBalance'), async (req, res) => {
   try {
     const groups = await Ledger.aggregate([
       { $group: { _id: { t: '$sourceType', id: '$sourceId' },
@@ -64,7 +64,7 @@ router.get('/health', requireAuth, requireRole('admin','manager'), async (req, r
 });
 
 // GET account ledger
-router.get('/account', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.get('/account', requireAuth, requirePermission('ledger', 'trialBalance', 'taxReport'), async (req, res) => {
   try {
     const { account, from, to } = req.query;
     if (!account) return res.status(400).json({ error: 'account required' });
@@ -78,7 +78,7 @@ router.get('/account', requireAuth, requireRole('admin','manager'), async (req, 
 });
 
 // GET accounts list
-router.get('/accounts-list', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.get('/accounts-list', requireAuth, requirePermission('ledger'), async (req, res) => {
   try {
     const accounts = await Ledger.aggregate([
       { $group: { _id: { account: '$account', accountType: '$accountType' } } },
@@ -90,7 +90,7 @@ router.get('/accounts-list', requireAuth, requireRole('admin','manager'), async 
 });
 
 // POST manual journal entry
-router.post('/', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.post('/', requireAuth, requirePermission('ledger'), async (req, res) => {
   try {
     const entry = new Ledger({ ...req.body, sourceType: 'manual' });
     await entry.save();
@@ -99,7 +99,7 @@ router.post('/', requireAuth, requireRole('admin','manager'), async (req, res) =
 });
 
 // ─── DAILY CASH BALANCE REPORT ────────────────────────────────────────────────
-router.get('/daily-cash-report', requireAuth, requireRole('admin','manager'), async (req, res) => {
+router.get('/daily-cash-report', requireAuth, requirePermission('dailyReport'), async (req, res) => {
   try {
     const { date } = req.query;
     if (!date) return res.status(400).json({ error: 'date required (YYYY-MM-DD)' });
@@ -277,7 +277,7 @@ router.get('/daily-cash-report', requireAuth, requireRole('admin','manager'), as
 
 // POST a direct journal entry pair (debit + credit) to Ledger collection
 // Used for cash/bank side of journal entries where no LedgerAccount doc exists
-router.post('/journal-entry', requireAuth, async (req, res) => {
+router.post('/journal-entry', requireAuth, requirePermission('ledger', 'chartOfAccounts'), async (req, res) => {
   try {
     const { date, account, accountType, debit, credit, description, reference, sourceType } = req.body;
     if (!description) return res.status(400).json({ error: 'Description required' });
