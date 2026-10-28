@@ -42,6 +42,14 @@ const landingCostSchema = new mongoose.Schema({
   addToCost:   { type: Boolean },
   costAccount: { type: String, default: '' },                 // where the cost part (base) is posted
   landedAmount:{ type: Number, default: 0 },                  // the part that goes into product cost
+  // owe = added to what you owe the supplier (default, as before). cash / bank = paid straight from
+  // that account: not in the purchase total; own ledger rows tagged narration 'extra:<rowId>'.
+  payMode:     { type: String, enum: ['owe','cash','bank'], default: 'owe' },
+  cashAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'CashAccount' },
+  bankAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'BankAccount' },
+  moneyAccountName: { type: String, default: '' },
+  cashEntry:   { type: mongoose.Schema.Types.ObjectId, ref: 'CashEntry' },
+  rowId:       { type: String },                              // stable id, assigned by the server
 }, { _id: false });
 
 // Payment stage — each payment made at different times
@@ -80,7 +88,7 @@ const purchaseSchema = new mongoose.Schema({
   subtotalForeign: { type: Number, default: 0 },
   subtotal:      { type: Number, default: 0 },
   taxAmount:     { type: Number, default: 0 },
-  landingCostTotal: { type: Number, default: 0 },   // sum of extra-cost amounts (what they add to the total)
+  landingCostTotal: { type: Number, default: 0 },   // extra costs added to what you owe (in the total); paid-directly rows excluded
   landedCostTotal:  { type: Number, default: 0 },   // the part of extra costs that goes into product cost
   importTaxTotal:{ type: Number, default: 0 },
   vatInputAmount:{ type: Number, default: 0 },   // no longer written; older purchases keep their value

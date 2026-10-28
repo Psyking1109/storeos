@@ -3246,7 +3246,18 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
             <select v-model="eCost.method" class="fc"><option value="value">Value</option><option value="qty">Quantity</option><option value="equal">Equally per line</option></select>
           </div>
         </div>
-        <div style="font-size:11px;color:var(--tx3)">Added to what you owe on this purchase.<span v-if="ecPrev.landed"> Adds {{f(ecPrev.landed)}} to product cost.</span><span v-else> Doesn't change product cost.</span></div>
+        <div class="fr">
+          <div class="fl"><label>Paid from</label>
+            <select v-model="eCost.payMode" class="fc"><option value="owe">Add to what I owe on this purchase</option><option value="bank">I paid it now — bank</option><option value="cash">I paid it now — cash</option></select>
+          </div>
+          <div class="fl" v-if="eCost.payMode==='bank'"><label>Bank account *</label>
+            <select v-model="eCost.bankAccount" class="fc"><option value="">— Select —</option><option v-for="a in baccs" :key="a._id" :value="a._id">{{a.name}} ({{f(a.currentBalance)}})</option></select>
+          </div>
+          <div class="fl" v-if="eCost.payMode==='cash'"><label>Cash account *</label>
+            <select v-model="eCost.cashAccount" class="fc"><option value="">— Select —</option><option v-for="a in cas" :key="a._id" :value="a._id">{{a.name}} ({{f(a.currentBalance)}})</option></select>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--tx3)">{{eCost.payMode==='owe'?'Added to what you owe on this purchase.':'Taken from that account now; the supplier balance does not change.'}}<span v-if="ecPrev.landed"> Adds {{f(ecPrev.landed)}} to product cost.</span><span v-else> Doesn't change product cost.</span></div>
       </div>
     </div>
     <div class="mf"><button class="btn btn-o" @click="mExtraCost=false">Cancel</button><button class="btn btn-p" @click="saveExtraCost" :disabled="saving||!eCost.kind">{{saving?'Saving…':'Add'}}</button></div>

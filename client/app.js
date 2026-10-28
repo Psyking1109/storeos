@@ -1100,7 +1100,7 @@ function addProdToPO(p){const isImp=nPO.value.purchaseType==='import';nPO.value.
 function addTaxToPOLine(item,code){if(!code||item.taxLines.some(tl=>tl.taxCode===code))return;const tr=txRates.value.find(t=>t.code===code);if(!tr)return;item.taxLines.push({taxCode:tr.code,taxName:tr.name,rate:tr.rate,amount:0});calcPO();}
 function calcPO(){
   if(!nPO.value||!nPO.value.items)return;const isImp=nPO.value.purchaseType==='import';const er=isImp?(nPO.value.exchangeRate||1):1;let subF=0,subL=0,totTax=0,lcTot=0;for(const item of nPO.value.items){if(isImp)item.unitCost=(item.unitCostForeign||0)*er;item.lineSubtotal=n(item.qty)*n(item.unitCost);subF+=(item.qty||0)*(item.unitCostForeign||0);let it=0;if(!nPO.value.taxInclusive&&item.taxLines?.length){item.taxLines=item.taxLines.map(tl=>{const a=n(item.lineSubtotal)*(n(tl.rate)/100);it+=a;return{...tl,amount:a};});}item.taxAmount=it;item.lineTotal=item.lineSubtotal+it;totTax+=it;subL+=item.lineSubtotal;}for(const lc of nPO.value.landingCosts){
-    lcTot+=n(lc.amount);
+    if(!lcDirect(lc))lcTot+=n(lc.amount);
   }poSpreadPreview(nPO.value.items,nPO.value.landingCosts);nPO.value.subtotalForeign=subF;nPO.value.subtotal=subL;nPO.value.taxAmount=totTax;nPO.value.landingCostTotal=lcTot;nPO.value.total=subL+totTax+lcTot;nPO.value.balance=nPO.value.total-(nPO.value.paid||0);}
 // Preview of how extra costs land in unit cost (server: distributeLanding)
 function poSpreadPreview(items,lcs){
@@ -1382,7 +1382,7 @@ function calcPoDet(){try{
   }
   for(const lc of poDet.value.landingCosts){
     if(!lc.kind&&lc.currency&&lc.currency!=='LKR'&&lc.amountForeign)lc.amount=lc.amountForeign*er;
-    lcNet+=n(lc.amount);
+    if(!lcDirect(lc))lcNet+=n(lc.amount);
   }
   poDet.value.subtotal=subL;poDet.value.taxAmount=totTax;
   poDet.value.landingCostTotal=lcNet;poDet.value.landingTaxTotal=lcTax;
@@ -1502,8 +1502,8 @@ const ecRate=computed(()=>{const p=mExtraCost.value&&eCost.value.target==='new'?
 const ecCurrency=computed(()=>{const p=eCost.value.target==='new'?nPO.value:poDet.value;return p&&p.purchaseType==='import'?(p.currency||'USD'):'';});
 function openExtraCost(target){
   eCost.value={target:target||'det',kind:'',description:'',entered:'',currency:'LKR',amountForeign:'',date:target==='new'?(nPO.value.date||today):today,taxMode:'none',taxCode:'',taxRate:'',claimable:true,addToCost:true,
-    costAccount:coSettings.value.defaultLandingCostAccount||'Landing Costs',method:'value'};
-  mErr.value='';loadTxRates();if(!ledgerAccs.value.length)loadLedgerAccs();mExtraCost.value=true;
+    costAccount:coSettings.value.defaultLandingCostAccount||'Landing Costs',method:'value',payMode:'owe',cashAccount:'',bankAccount:''};
+  mErr.value='';loadTxRates();loadCas();loadBaccs();if(!ledgerAccs.value.length)loadLedgerAccs();mExtraCost.value=true;
 }
 function ecPickKind(k){const c=eCost.value;c.kind=k;c.taxMode='none';c.taxCode='';c.addToCost=true;if(k==='tax'&&!c.description)c.description='';}
 function ecPickTax(){const c=eCost.value;const t=txRates.value.find(x=>x.code===c.taxCode);if(!t)return;c.taxRate=t.rate;c.claimable=!!t.creditable;if(c.kind==='tax')c.addToCost=!t.creditable;if(!c.description&&c.kind==='tax')c.description=t.name;}
@@ -1514,11 +1514,15 @@ async function saveExtraCost(){
   if(!c.description){mErr.value=c.kind==='tax'?'Say what the tax is (e.g. Customs duty)':'Say what the cost is for';return;}
   if(!(n(c.entered)>0)){mErr.value='Amount must be more than 0';return;}
   if((c.kind==='tax'||c.taxMode!=='none')&&!c.taxCode){mErr.value='Choose the tax';return;}
+  if(c.payMode==='cash'&&!c.cashAccount){mErr.value='Select the cash account it was paid from';return;}
+  if(c.payMode==='bank'&&!c.bankAccount){mErr.value='Select the bank account it was paid from';return;}
   const pv=lcPreview(c);
   const row={description:c.description,kind:c.kind,taxMode:c.kind==='tax'?'none':c.taxMode,entered:n(c.entered),currency:c.currency||'LKR',amountForeign:c.currency!=='LKR'?n(c.amountForeign):0,
     date:c.date,taxCode:(c.kind==='tax'||c.taxMode!=='none')?c.taxCode:'',taxRate:c.taxMode==='none'?undefined:n(c.taxRate),
     claimable:pv.tax?!!c.claimable:false,addToCost:c.kind==='tax'&&pv.tax&&c.claimable?false:c.addToCost!==false,costAccount:c.kind==='cost'?c.costAccount:'',method:c.method||'value',
-    amount:pv.total,baseAmount:pv.base,taxAmount:pv.tax,landedAmount:pv.landed};
+    amount:pv.total,baseAmount:pv.base,taxAmount:pv.tax,landedAmount:pv.landed,
+    payMode:c.payMode||'owe',cashAccount:c.payMode==='cash'?c.cashAccount:undefined,bankAccount:c.payMode==='bank'?c.bankAccount:undefined,
+    moneyAccountName:c.payMode==='cash'?(cas.value.find(a=>a._id===c.cashAccount)||{}).name:c.payMode==='bank'?(baccs.value.find(a=>a._id===c.bankAccount)||{}).name:''};
   if(c.target==='new'){nPO.value.landingCosts.push(row);calcPO();mExtraCost.value=false;return;}
   saving.value=true;mErr.value='';
   try{
@@ -1527,15 +1531,18 @@ async function saveExtraCost(){
   }catch(e){mErr.value=e.message;}
   saving.value=false;
 }
+// Paid straight from cash / bank: not part of what you owe the supplier
+const lcDirect=lc=>!!lc.kind&&['cash','bank'].includes(lc.payMode);
 // "Freight — 11,800.00 (VAT 1,800.00, claimable)"
 function lcLabel(lc){
   if(!lc.kind)return lc.description+' — '+f(lc.amount);
-  if(lc.kind==='tax')return lc.description+' — '+f(lc.amount)+' ('+(lc.claimable?'claimable':(lc.addToCost?'not claimable, part of cost':'not claimable'))+')';
-  return lc.description+' — '+f(lc.amount)+(lc.taxAmount?' ('+lc.taxCode+' '+f(lc.taxAmount)+', '+(lc.claimable?'claimable':'not claimable')+')':'');
+  const paid=lcDirect(lc)?' · paid from '+(lc.moneyAccountName||lc.payMode):'';
+  if(lc.kind==='tax')return lc.description+' — '+f(lc.amount)+' ('+(lc.claimable?'claimable':(lc.addToCost?'not claimable, part of cost':'not claimable'))+')'+paid;
+  return lc.description+' — '+f(lc.amount)+(lc.taxAmount?' ('+lc.taxCode+' '+f(lc.taxAmount)+', '+(lc.claimable?'claimable':'not claimable')+')':'')+paid;
 }
 async function delExtraCost(idx){
   const lc=(poDet.value.landingCosts||[])[idx];
-  if(!lc||!confirm('Remove extra cost "'+lc.description+'" ('+f(lc.amount)+')?'))return;
+  if(!lc||!confirm('Remove extra cost "'+lc.description+'" ('+f(lc.amount)+')?'+(lcDirect(lc)?' '+f(lc.amount)+' goes back into '+(lc.moneyAccountName||lc.payMode)+'.':'')))return;
   try{poDet.value=await api('PUT','/purchases/'+poDet.value._id,{landingCosts:poDet.value.landingCosts.filter((_,i)=>i!==idx)});loadPOs();}
   catch(e){alert(e.message);}
 }
@@ -1727,7 +1734,7 @@ openCust,saveCust,openSupp,saveSupp,viewSuppHist,
 openCA,saveCA,openXfer,saveXfer,openExp,saveExp,delExp,openPay,savePay,
 openBAcc,saveBAcc,openBTx,saveBTx,delBTx,viewStmt,loadStmt,loadBTxs,mStockMovement,stockMovementData,viewStockMovement,mPODetail,poDet,newStage,openPODetail,savePayStage,delPayStage,toggleGoodsReceived,finalizePO,savePONotes,poPayOpen,poOrderedQty,poReceivedQty,poPaidPct,mReceive,recvLines,recvDate,recvNote,openReceive,saveReceive,delReceipt,mExtraCost,eCost,openExtraCost,saveExtraCost,delExtraCost,poTimeline,poFinFilt,poDetSrch,poDetSrchRes,poDetSrchProds,poDetAddItem,poDetAddManualItem,poDetRemoveItem,poDetAddLC,poDetRemoveLC,calcPodet:calcPoDet,savePoDetItems,poDetAddTaxToItem,mInvDetail,invDet,openInvDetail,converting,convertToInvoice,mDelivery,delivering,delItems,delDoc,openDeliveryModal,saveDelivery,mReturn,retInv,retItems,retTotal,retReason,retDate,retRestock,openReturn,calcReturnTotal,saveReturn,
 openChq,saveChq,qChqSts,saveChqSts,delChq,loadProds,loadPOs,loadChqs,n,pickChqParty,mChqEnd,eEnd,endPOs,openEndorse,loadEndPOs,saveEndorse,reverseEndorse,payChqDate,payChqBank,payChqDrawer,
-openTxRate,saveTxRate,disableTxRate,purchaseTaxes,ecPrev,ecRate,ecCurrency,ecPickKind,ecPickTax,ecSetForeign,lcLabel,mNewAcc,eNewAcc,newAccErr,txAccPick,saveNewAcc,
+openTxRate,saveTxRate,disableTxRate,purchaseTaxes,lcDirect,ecPrev,ecRate,ecCurrency,ecPickKind,ecPickTax,ecSetForeign,lcLabel,mNewAcc,eNewAcc,newAccErr,txAccPick,saveNewAcc,
 txAccs,txAccTo,txSettles,mTxPay,eTxPay,loadTxAccs,txBalLabel,openTxPay,saveTxPay,undoTxSettle,txAccStatement,openInvType,saveInvType,delInvType,mTaxDetail,taxDetailData,openTaxDetail,
 openLoc,saveLoc,openUser,saveUser,disableUser,viewCashLedger,loadCashLedger,cashLedgerAcc,cashLedRows,cashLedFr,cashLedTo,selectedCashRow,mEditCashEntry,eCashEntry,editCashEntry,saveCashEntry,delCashEntry,addTaxToInvType,applyInvTypeTaxConfig,toggleInvTypeTax,
 loadLed,loadAccLed,loadTaxRpt,loadTaxMonthly,loadRpt,expandedRptRows,toggleRptRow,loadInvs,loadExps,mCat,eCat,savedCats,pCatFilter,saveCat,delCat,prodsByCategory,mQuickProd,openQuickProd,saveQuickProd,toggleLooseMode,

@@ -135,6 +135,51 @@ function extraCostRow(lc, ctx, exRate) {
   lc.landedAmount = lc.addToCost ? r2(base + (lc.claimable ? 0 : t)) : 0;
   lc.isImportTax = false;
   if (!['value', 'qty', 'equal'].includes(lc.method)) lc.method = 'value';
+  lc.payMode = ['cash', 'bank'].includes(lc.payMode) ? lc.payMode : 'owe';
+  if (lc.payMode === 'cash' && !lc.cashAccount) throw new Error(`${what}: select the cash account it was paid from`);
+  if (lc.payMode === 'bank' && !lc.bankAccount) throw new Error(`${what}: select the bank account it was paid from`);
+  if (lc.payMode !== 'cash') delete lc.cashAccount;
+  if (lc.payMode !== 'bank') delete lc.bankAccount;
+}
+
+// ── Extra costs paid directly from cash / bank (not added to what you owe the supplier) ──
+const paidDirect = lc => !!lc.kind && ['cash', 'bank'].includes(lc.payMode);
+const newRowId = () => new mongoose.Types.ObjectId().toString();
+// The fields a person enters; if none changed, a saved row keeps its saved figures
+const ROW_INPUT = ['kind', 'taxMode', 'entered', 'taxCode', 'taxRate', 'claimable', 'addToCost', 'costAccount', 'method', 'payMode', 'currency', 'amountForeign', 'description'];
+const sameInput = (a, b) => ROW_INPUT.every(k => String(a[k] ?? '') === String(b[k] ?? ''));
+
+// Check the cash / bank account exists before anything is saved; returns its name
+async function directAccountName(lc) {
+  const acc = lc.payMode === 'bank' ? await BankAccount.findById(lc.bankAccount) : await CashAccount.findById(lc.cashAccount);
+  if (!acc) throw new Error(`${lc.description}: ${lc.payMode} account not found`);
+  return acc.name;
+}
+// Dr the cost / tax accounts, Cr the cash / bank account, on the row's own date
+function directLedgerRows(po, lc, ctx) {
+  const base = { date: lc.date || po.date, reference: po.purchaseNo, sourceType: 'purchase', sourceId: po._id, narration: `extra:${lc.rowId}`,
+    description: `${lc.description} — PO ${po.purchaseNo} (paid directly)` };
+  const le = [];
+  if (lc.baseAmount) le.push({ ...base, account: lc.costAccount, accountType: ctx.accType[lc.costAccount] || 'expense', debit: lc.baseAmount, credit: 0 });
+  if (lc.taxAmount) le.push(purchaseTaxRow(ctx.taxMap, lc.taxCode, lc.taxAmount, lc.claimable, base));
+  le.push({ ...base, account: lc.moneyAccountName, accountType: lc.payMode, debit: 0, credit: lc.amount });
+  return le;
+}
+// Same money movement as payPurchase
+async function payExtraDirect(po, lc) {
+  if (lc.payMode === 'bank') await BankAccount.findByIdAndUpdate(lc.bankAccount, { $inc: { currentBalance: -lc.amount } });
+  else {
+    await CashAccount.findByIdAndUpdate(lc.cashAccount, { $inc: { currentBalance: -lc.amount } });
+    const ce = await CashEntry.create({ date: lc.date || po.date, type: 'out', category: 'Purchase Extra Cost', description: `${lc.description} for ${po.purchaseNo}${po.supplierName ? ' - ' + po.supplierName : ''}`,
+      reference: po.purchaseNo, amount: lc.amount, paymentMode: 'cash', cashAccount: lc.cashAccount, cashAccountName: lc.moneyAccountName });
+    lc.cashEntry = ce._id;
+  }
+}
+async function undoExtraDirect(po, lc) {
+  if (lc.payMode === 'bank' && lc.bankAccount) await BankAccount.findByIdAndUpdate(lc.bankAccount, { $inc: { currentBalance: lc.amount } });
+  if (lc.payMode === 'cash' && lc.cashAccount) await CashAccount.findByIdAndUpdate(lc.cashAccount, { $inc: { currentBalance: lc.amount } });
+  if (lc.cashEntry) await CashEntry.findByIdAndDelete(lc.cashEntry);
+  await Ledger.deleteMany({ sourceType: 'purchase', sourceId: po._id, narration: `extra:${lc.rowId}` });
 }
 
 router.get('/', async (req, res) => {
@@ -169,11 +214,14 @@ function computePurchase(data, ctx) {
   let subForeign = 0, subLKR = 0, totalTax = 0;
   const taxTotals = {};
   const creditable = code => !!(taxMap[code] && taxMap[code].creditable);
-  const addTax = (code, name, amt, claimable) => {
+  const owedTax = {};   // posted with the purchase (Cr Accounts Payable); taxTotals also shows paid-directly taxes
+  const addTax = (code, name, amt, claimable, owed = true) => {
     if (!amt) return;
     const c = code || '', k = c + '|' + (claimable ? 1 : 0);
-    if (!taxTotals[k]) taxTotals[k] = { taxCode: c, taxName: name || (taxMap[c] && taxMap[c].name) || c, amount: 0, claimable };
-    taxTotals[k].amount += amt;
+    for (const m of owed ? [taxTotals, owedTax] : [taxTotals]) {
+      if (!m[k]) m[k] = { taxCode: c, taxName: name || (taxMap[c] && taxMap[c].name) || c, amount: 0, claimable };
+      m[k].amount += amt;
+    }
   };
 
   for (const item of data.items) {
@@ -204,7 +252,13 @@ function computePurchase(data, ctx) {
       else addCost(ctx.landingAccount, lc.amount || 0);
       lc.landedAmount = lc.amount || 0;
     } else {
-      extraCostRow(lc, ctx, exRate);
+      if (!lc._frozen) extraCostRow(lc, ctx, exRate);
+      delete lc._frozen;
+      if (paidDirect(lc)) {   // its own rows (directLedgerRows); not part of the purchase total
+        addTax(lc.taxCode, '', lc.taxAmount, lc.claimable, false);
+        landedTotal += lc.landedAmount || 0;
+        continue;
+      }
       addCost(lc.costAccount, lc.baseAmount);
       addTax(lc.taxCode, '', lc.taxAmount, lc.claimable);
     }
@@ -225,7 +279,7 @@ function computePurchase(data, ctx) {
   data.taxTotals = Object.values(taxTotals);
   data.total = subLKR + totalTax + landingTotal;
   data.balance = data.total - (data.paid || 0);
-  return { subLKR, costByAccount, taxTotals: data.taxTotals, total: data.total };
+  return { subLKR, costByAccount, taxTotals: Object.values(owedTax), total: data.total };
 }
 
 // The purchase's own ledger rows (payments are separate rows tagged narration 'stage:<id>').
@@ -259,14 +313,23 @@ router.post('/', async (req, res) => {
     if (!data.purchaseNo) data.purchaseNo = await nextPurchaseNo();
     for (const item of data.items) item.receivedQty = 0;
     data.taxVersion = 1;
+    for (const lc of (data.landingCosts || [])) lc.rowId = newRowId();
     const ctx = await purchaseContext();
     const totals = computePurchase(data, ctx);
+    const direct = (data.landingCosts || []).filter(paidDirect);
+    for (const lc of direct) lc.moneyAccountName = await directAccountName(lc);
     // Stock no longer moves here: it moves when goods are received (POST /:id/receipts)
     data.receiptMode = 'staged';
 
     const purchase = new Purchase(data);
     const rows = buildPurchaseLedger(purchase, totals, ctx);
+    for (const lc of direct) rows.push(...directLedgerRows(purchase, lc, ctx));
     await purchase.save();
+    if (direct.length) {
+      for (const lc of purchase.landingCosts.filter(paidDirect)) await payExtraDirect(purchase, lc);
+      purchase.markModified('landingCosts');
+      await purchase.save();
+    }
 
     if (data.supplier && data.balance > 0) await Supplier.findByIdAndUpdate(data.supplier, { $inc: { balance: data.balance } });
     await Ledger.insertMany(rows);
@@ -433,7 +496,27 @@ router.put('/:id', async (req, res) => {
       for (let i = oldItems.length; i < items.length; i++) items[i].receivedQty = 0;
       for (const it of items) { it.qty = Number(it.qty) || 0; if (!it.product) delete it.product; }
     }
-    const costs = (touchCosts ? req.body.landingCosts : po.landingCosts).map(plain).map(c => ({ ...c, amount: Number(c.amount) || 0, date: c.date || new Date() }));
+    const oldCosts = po.landingCosts.map(plain);
+    const oldById = Object.fromEntries(oldCosts.filter(c => c.rowId).map(c => [c.rowId, c]));
+    const seen = new Set();
+    const costs = [];
+    for (const c0 of (touchCosts ? req.body.landingCosts : po.landingCosts).map(plain)) {
+      let c = { ...c0, amount: Number(c0.amount) || 0, date: c0.date || new Date() };
+      const old = c.rowId && oldById[c.rowId];
+      if (c.rowId && (!old || seen.has(c.rowId))) delete c.rowId;    // ids come from the server only
+      // Paid-directly rows are never edited in place (remove and re-add): the saved row wins.
+      // Other saved rows keep their saved figures unless what was entered changed.
+      if (old && c.rowId) {
+        if (paidDirect(old)) c = { ...old, _frozen: true };
+        else if (old.kind && sameInput(old, c)) c = { ...old, _frozen: true };
+      }
+      if (!c.rowId) c.rowId = newRowId();    // also backfills older rows
+      seen.add(c.rowId);
+      costs.push(c);
+    }
+    const removedDirect = oldCosts.filter(o => paidDirect(o) && !seen.has(o.rowId));
+    const addedDirect = costs.filter(c => paidDirect(c) && !c._frozen);
+    for (const lc of addedDirect) lc.moneyAccountName = await directAccountName(lc);
 
     // Older purchases added stock at creation: keep stock in step when their quantities change
     if (po.receiptMode !== 'staged' && po.updateStock !== false && touchItems) {
@@ -452,6 +535,7 @@ router.put('/:id', async (req, res) => {
     const ctx = await purchaseContext();
     const totals = computePurchase(data, ctx);
     const rows = buildPurchaseLedger(po, totals, ctx);
+    for (const lc of addedDirect) rows.push(...directLedgerRows(po, lc, ctx));
     const oldTotal = po.total || 0;
     for (const k of ['items', 'landingCosts', 'subtotal', 'subtotalForeign', 'taxAmount', 'landingCostTotal', 'landedCostTotal', 'importTaxTotal', 'taxTotals', 'total']) po[k] = data[k];
     po.landingTaxTotal = 0; // extra-cost taxes are not supported on the server
@@ -459,8 +543,16 @@ router.put('/:id', async (req, res) => {
 
     // Re-post the purchase's own rows; payment rows stay: tagged 'stage:<id>' since Oct 5,
     // and older ones untagged but described "Payment PO …"
-    await Ledger.deleteMany({ sourceType: 'purchase', sourceId: po._id, narration: { $not: /^stage:/ }, description: { $not: /^Payment/ } });
+    // Paid-directly extra costs ('extra:<rowId>') are removed only with their row (below)
+    await Ledger.deleteMany({ sourceType: 'purchase', sourceId: po._id, narration: { $not: /^(stage|extra):/ }, description: { $not: /^Payment/ } });
+    for (const lc of removedDirect) await undoExtraDirect(po, lc);
     await Ledger.insertMany(rows);
+    if (addedDirect.length) {
+      const ids = new Set(addedDirect.map(lc => lc.rowId));
+      for (const lc of po.landingCosts.filter(x => ids.has(x.rowId))) await payExtraDirect(po, lc);
+      po.markModified('landingCosts');
+      await po.save();
+    }
     if (po.supplier && po.total !== oldTotal) await Supplier.findByIdAndUpdate(po.supplier, { $inc: { balance: po.total - oldTotal } });
 
     // Extra costs change the real unit cost of goods already on the shelf
