@@ -12,6 +12,7 @@ const Settings    = require('../models/Settings');
 const Cheque      = require('../models/Cheque');
 const BankStatementLine = require('../models/BankStatementLine');
 const { buildIrdNumber } = require('../utils/irdNumbering');
+const { loadTaxMap, saleTaxRows } = require('../utils/taxAccounts');
 
 const DOC_PREFIX = { proforma: 'PRO', invoice: 'INV' };
 
@@ -119,20 +120,17 @@ function calcTaxes(items, taxInclusive) {
 
 // ── Ledger helpers ──────────────────────────────────────────────────────────
 // Raising an invoice: Dr AR (total) = Cr Sales (net of discount and customer tax) + Cr customer tax payables.
-// Business taxes (SSCL etc.) are the store's own cost: Dr <code> Expense, Cr <code> Payable.
-function invoiceRaiseEntries(inv, breakdown, desc) {
+// Business taxes (SSCL etc.) are the store's own cost: Dr its cost account, Cr its tax account.
+// Tax accounts come from Setup → Tax Rates (utils/taxAccounts.js).
+function invoiceRaiseEntries(inv, breakdown, desc, taxMap) {
   const base = { date: inv.date, description: desc, reference: inv.invoiceNo, sourceType: 'invoice', sourceId: inv._id };
   const custTax = breakdown.filter(t => !t.businessTax).reduce((s, t) => s + (t.amount || 0), 0);
   const le = [
     { ...base, account: 'Accounts Receivable', accountType: 'receivable', debit: inv.total, credit: 0 },
     { ...base, account: 'Sales Revenue', accountType: 'revenue', debit: 0, credit: inv.total - custTax },
   ];
-  for (const tl of breakdown.filter(t => !t.businessTax && t.amount))
-    le.push({ ...base, account: tl.taxCode + ' Payable', accountType: 'payable', debit: 0, credit: tl.amount, description: `${tl.taxCode} on ${inv.invoiceNo}` });
-  for (const tl of breakdown.filter(t => t.businessTax && t.amount)) {
-    le.push({ ...base, account: tl.taxCode + ' Expense', accountType: 'expense', debit: tl.amount, credit: 0, description: `${tl.taxCode} on ${inv.invoiceNo}` });
-    le.push({ ...base, account: tl.taxCode + ' Payable', accountType: 'payable', debit: 0, credit: tl.amount, description: `${tl.taxCode} liability on ${inv.invoiceNo}` });
-  }
+  for (const tl of breakdown.filter(t => t.amount))
+    le.push(...saleTaxRows(taxMap, tl, { ...base, description: `${tl.taxCode} on ${inv.invoiceNo}` }));
   return le;
 }
 
@@ -360,7 +358,7 @@ router.post('/', async (req, res) => {
     }
 
     // Ledger: raise the invoice, then receive any payment made at the counter
-    await Ledger.insertMany(invoiceRaiseEntries(invoice, breakdown, `Invoice ${invoice.invoiceNo}`));
+    await Ledger.insertMany(invoiceRaiseEntries(invoice, breakdown, `Invoice ${invoice.invoiceNo}`, await loadTaxMap()));
     await receivePayment(invoice, {
       amount: data.paid, paymentMode: data.paymentMode, cashAccount: data.cashAccount, bankAccount: data.bankAccount,
       chequeNo: data.chequeNo, chequeDate: data.chequeDate, chequeBank: data.chequeBank, chequeBranch: data.chequeBranch,
@@ -427,7 +425,7 @@ router.post('/:id/convert', async (req, res) => {
     if (invoice.customer && invoice.balance > 0) {
       await Customer.findByIdAndUpdate(invoice.customer, { $inc: { balance: invoice.balance } });
     }
-    await Ledger.insertMany(invoiceRaiseEntries(invoice, breakdown, `Invoice ${invoice.invoiceNo} (from ${source.invoiceNo})`));
+    await Ledger.insertMany(invoiceRaiseEntries(invoice, breakdown, `Invoice ${invoice.invoiceNo} (from ${source.invoiceNo})`, await loadTaxMap()));
 
     // Mark source as converted so it stops showing as "open" anywhere
     source.converted = true;
@@ -621,12 +619,9 @@ router.post('/:id/return', async (req, res) => {
       { ...base, account: 'Sales Returns', accountType: 'revenue', debit: total - custTaxes.reduce((s, t) => s + t.amount, 0), credit: 0 },
       { ...base, account: 'Accounts Receivable', accountType: 'receivable', debit: 0, credit: total },
     ];
-    for (const tl of custTaxes)
-      le.push({ ...base, account: tl.taxCode + ' Payable', accountType: 'payable', debit: tl.amount, credit: 0, description: `${tl.taxCode} reversal on return against ${invoice.invoiceNo}` });
-    for (const tl of bizTaxes) {
-      le.push({ ...base, account: tl.taxCode + ' Payable', accountType: 'payable', debit: tl.amount, credit: 0, description: `${tl.taxCode} reversal on return against ${invoice.invoiceNo}` });
-      le.push({ ...base, account: tl.taxCode + ' Expense', accountType: 'expense', debit: 0, credit: tl.amount, description: `${tl.taxCode} reversal on return against ${invoice.invoiceNo}` });
-    }
+    const taxMap = await loadTaxMap();
+    for (const tl of [...custTaxes.map(t => ({ ...t, businessTax: false })), ...bizTaxes.map(t => ({ ...t, businessTax: true }))])
+      le.push(...saleTaxRows(taxMap, tl, { ...base, description: `${tl.taxCode} reversal on return against ${invoice.invoiceNo}` }, true));
     await Ledger.insertMany(le);
 
     res.status(201).json(creditNote);

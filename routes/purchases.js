@@ -8,6 +8,7 @@ const Ledger = require('../models/Ledger');
 const CashAccount = require('../models/CashAccount');
 const BankAccount = require('../models/BankAccount');
 const Cheque = require('../models/Cheque');
+const { loadTaxMap, purchaseTaxRow } = require('../utils/taxAccounts');
 
 // Every supplier payment is a payment stage: Dr Accounts Payable, Cr the actual cash/bank account
 // (or Cheques Payable for a cheque we write, which hits the bank when it clears).
@@ -98,74 +99,75 @@ router.get('/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Item loop, item taxes, import duty, extra (landing) costs and totals. Mutates `data` exactly as
-// POST / always has; returns the figures postPurchaseLedger needs.
-function computePurchase(data) {
+// Item loop, item taxes, extra (landing) costs and totals. Mutates `data` exactly as POST / always
+// has; returns the figures buildPurchaseLedger needs. Taxes are gathered per code into
+// data.taxTotals; whether each is claimable comes from Setup → Tax Rates (taxMap).
+function computePurchase(data, taxMap) {
   const isImport = data.purchaseType === 'import';
   const exRate = isImport ? (data.exchangeRate || 1) : 1;
   let subForeign = 0, subLKR = 0, totalTax = 0;
-  let vatInput = 0, ssclAmt = 0, customsDutyTotal = 0, cessTotal = 0;
+  const taxTotals = {};
+  const addTax = (code, name, amt) => {
+    if (!amt) return;
+    const k = code || '';
+    if (!taxTotals[k]) taxTotals[k] = { taxCode: k, taxName: name || (taxMap[k] && taxMap[k].name) || k, amount: 0, claimable: !!(taxMap[k] && taxMap[k].creditable) };
+    taxTotals[k].amount += amt;
+  };
 
   for (const item of data.items) {
     if (isImport) { item.unitCostForeign = item.unitCostForeign || 0; item.unitCost = item.unitCostForeign * exRate; }
     item.lineSubtotal = (item.qty || 0) * (item.unitCost || 0);
     subForeign += (item.qty || 0) * (item.unitCostForeign || 0);
-    let itemTax = 0;
+    let itemTax = 0, costTax = 0;
     if (!data.taxInclusive && item.taxLines && item.taxLines.length) {
       item.taxLines = item.taxLines.map(tl => {
         const amt = item.lineSubtotal * (tl.rate / 100);
-        if (tl.taxCode === 'VAT')  vatInput += amt;
-        if (tl.taxCode === 'SSCL') ssclAmt  += amt;
+        addTax(tl.taxCode, tl.taxName, amt);
+        if (!(taxMap[tl.taxCode] && taxMap[tl.taxCode].creditable)) costTax += amt;
         itemTax += amt; return { ...tl, amount: amt };
       });
     }
-    if (isImport) {
-      if (item.customsDutyRate) { item.customsDutyAmt = item.lineSubtotal * (item.customsDutyRate / 100); customsDutyTotal += item.customsDutyAmt; itemTax += item.customsDutyAmt; }
-      if (item.cessRate) { item.cessAmt = item.lineSubtotal * (item.cessRate / 100); cessTotal += item.cessAmt; itemTax += item.cessAmt; }
-    }
     item.taxAmount = itemTax; item.lineTotal = item.lineSubtotal + itemTax;
+    item._costTax = costTax;
     totalTax += itemTax; subLKR += item.lineSubtotal;
   }
 
-  let landingTotal = 0, importTaxTotal = 0, palAmt = 0;
+  let landingTotal = 0, importTaxTotal = 0;
   for (const lc of (data.landingCosts || [])) {
     if (lc.currency && lc.currency !== 'LKR' && lc.amountForeign) lc.amount = lc.amountForeign * exRate;
     landingTotal += lc.amount || 0;
-    if (lc.isImportTax) {
-      importTaxTotal += lc.amount || 0;
-      if (lc.taxCode === 'PAL')       palAmt          += lc.amount || 0;
-      if (lc.taxCode === 'VAT')       vatInput        += lc.amount || 0;
-      if (lc.taxCode === 'CUST_DUTY') customsDutyTotal += lc.amount || 0;
-      if (lc.taxCode === 'CESS')      cessTotal        += lc.amount || 0;
-    }
+    if (lc.isImportTax) { importTaxTotal += lc.amount || 0; addTax(lc.taxCode, '', lc.amount || 0); }
   }
 
   data.items = distributeLanding(data.items, data.landingCosts || []);
+  // Non-claimable item tax is part of what the goods cost (older purchases: unchanged)
+  for (const item of data.items) {
+    if (data.taxVersion >= 1 && item.qty) item.finalUnitCost += item._costTax / item.qty;
+    delete item._costTax;
+  }
   data.subtotalForeign = subForeign; data.subtotal = subLKR;
   data.taxAmount = totalTax; data.landingCostTotal = landingTotal;
-  data.importTaxTotal = importTaxTotal; data.vatInputAmount = vatInput;
-  data.palAmount = palAmt; data.customsDutyTotal = customsDutyTotal;
-  data.cessTotal = cessTotal; data.ssclAmount = ssclAmt;
+  data.importTaxTotal = importTaxTotal;
+  data.taxTotals = Object.values(taxTotals);
   data.total = subLKR + totalTax + landingTotal;
   data.balance = data.total - (data.paid || 0);
-  return { subLKR, vatInput, palAmt, customsDutyTotal, landingTotal, importTaxTotal, total: data.total };
+  return { subLKR, landingTotal, importTaxTotal, taxTotals: data.taxTotals, total: data.total };
 }
 
-// The purchase's own ledger rows (payments are separate rows tagged narration 'stage:<id>')
-async function postPurchaseLedger(po, t) {
+// The purchase's own ledger rows (payments are separate rows tagged narration 'stage:<id>').
+// Built before anything is saved so a one-sided entry can never be written.
+function buildPurchaseLedger(po, t, taxMap) {
   const base = { date: po.date, reference: po.purchaseNo, sourceType: 'purchase', sourceId: po._id };
   const le = [
     { ...base, account: 'Purchases', accountType: 'purchases', debit: t.subLKR, credit: 0, description: `PO ${po.purchaseNo} — ${po.supplierName}` },
     { ...base, account: 'Accounts Payable', accountType: 'payable', debit: 0, credit: t.total, description: `PO ${po.purchaseNo} — ${po.supplierName}` },
   ];
-  if (t.vatInput)         le.push({ ...base, account: 'Input VAT',    accountType: 'asset',   debit: t.vatInput,         credit: 0, description: `Input VAT on PO ${po.purchaseNo}` });
-  if (t.palAmt)           le.push({ ...base, account: 'PAL Expense',  accountType: 'expense', debit: t.palAmt,           credit: 0, description: `PAL on PO ${po.purchaseNo}` });
-  if (t.customsDutyTotal) le.push({ ...base, account: 'Customs Duty', accountType: 'expense', debit: t.customsDutyTotal, credit: 0, description: `Customs on PO ${po.purchaseNo}` });
+  for (const tt of t.taxTotals)
+    le.push(purchaseTaxRow(taxMap, tt.taxCode, tt.amount, tt.claimable, { ...base, description: `${tt.taxCode || 'Tax'} on PO ${po.purchaseNo}` }));
   if (t.landingTotal - t.importTaxTotal > 0) le.push({ ...base, account: 'Landing Costs', accountType: 'expense', debit: t.landingTotal - t.importTaxTotal, credit: 0, description: `Landing costs PO ${po.purchaseNo}` });
-  // Taxes not split out above (SSCL, CESS, other item or import taxes) so Dr always equals Cr
-  const otherTax = t.total - le.filter(e => e.debit).reduce((s, e) => s + e.debit, 0);
-  if (otherTax > 0.005) le.push({ ...base, account: 'Other Purchase Taxes', accountType: 'expense', debit: otherTax, credit: 0, description: `Other taxes on PO ${po.purchaseNo}` });
-  await Ledger.insertMany(le);
+  const dr = le.reduce((s, e) => s + e.debit, 0), cr = le.reduce((s, e) => s + e.credit, 0);
+  if (Math.abs(dr - cr) > 0.005) throw new Error(`PO ${po.purchaseNo}: entries don't balance (Dr ${dr.toFixed(2)}, Cr ${cr.toFixed(2)}). Nothing was saved.`);
+  return le.filter(e => e.debit || e.credit);
 }
 
 router.post('/', async (req, res) => {
@@ -181,15 +183,18 @@ router.post('/', async (req, res) => {
     data.paid = 0; // recorded below as a payment stage
     if (!data.purchaseNo) data.purchaseNo = await nextPurchaseNo();
     for (const item of data.items) item.receivedQty = 0;
-    const totals = computePurchase(data);
+    data.taxVersion = 1;
+    const taxMap = await loadTaxMap();
+    const totals = computePurchase(data, taxMap);
     // Stock no longer moves here: it moves when goods are received (POST /:id/receipts)
     data.receiptMode = 'staged';
 
     const purchase = new Purchase(data);
+    const rows = buildPurchaseLedger(purchase, totals, taxMap);
     await purchase.save();
 
     if (data.supplier && data.balance > 0) await Supplier.findByIdAndUpdate(data.supplier, { $inc: { balance: data.balance } });
-    await postPurchaseLedger(purchase, totals);
+    await Ledger.insertMany(rows);
     if (upFront > 0) await payPurchase(purchase, { amount: upFront, paymentMode: data.paymentMode, cashAccount: data.cashAccount,
       bankAccount: data.bankAccount, reference: data.chequeNo || data.paymentReference || '', description: 'Paid when PO was created', date: data.date });
     res.status(201).json(purchase);
@@ -368,17 +373,19 @@ router.put('/:id', async (req, res) => {
       for (const [pid, d] of Object.entries(delta)) if (d) await Product.findByIdAndUpdate(pid, { $inc: { stock: d } });
     }
 
-    const data = { purchaseType: po.purchaseType, exchangeRate: po.exchangeRate, taxInclusive: po.taxInclusive, paid: po.paid, items, landingCosts: costs };
-    const totals = computePurchase(data);
+    const data = { purchaseType: po.purchaseType, exchangeRate: po.exchangeRate, taxInclusive: po.taxInclusive, taxVersion: po.taxVersion || 0, paid: po.paid, items, landingCosts: costs };
+    const taxMap = await loadTaxMap();
+    const totals = computePurchase(data, taxMap);
+    const rows = buildPurchaseLedger(po, totals, taxMap);
     const oldTotal = po.total || 0;
-    for (const k of ['items', 'landingCosts', 'subtotal', 'subtotalForeign', 'taxAmount', 'landingCostTotal', 'importTaxTotal', 'vatInputAmount', 'total']) po[k] = data[k];
+    for (const k of ['items', 'landingCosts', 'subtotal', 'subtotalForeign', 'taxAmount', 'landingCostTotal', 'importTaxTotal', 'taxTotals', 'total']) po[k] = data[k];
     po.landingTaxTotal = 0; // extra-cost taxes are not supported on the server
     await po.save();
 
     // Re-post the purchase's own rows; payment rows stay: tagged 'stage:<id>' since Oct 5,
     // and older ones untagged but described "Payment PO …"
     await Ledger.deleteMany({ sourceType: 'purchase', sourceId: po._id, narration: { $not: /^stage:/ }, description: { $not: /^Payment/ } });
-    await postPurchaseLedger(po, totals);
+    await Ledger.insertMany(rows);
     if (po.supplier && po.total !== oldTotal) await Supplier.findByIdAndUpdate(po.supplier, { $inc: { balance: po.total - oldTotal } });
 
     // Extra costs change the real unit cost of goods already on the shelf

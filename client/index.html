@@ -215,6 +215,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
     <div class="ni" :class="{active:pg==='led'}"  @click="pg='led'"><span class="ic">📒</span>Ledger</div>
     <div class="ni" :class="{active:pg==='laccs'}" @click="pg='laccs';loadLedgerAccs()"><span class="ic">📋</span>Chart of Accounts</div>
     <div class="ni" :class="{active:pg==='tbal'}"  @click="pg='tbal';loadTrialBalance()"><span class="ic">⚖️</span>Trial Balance</div>
+    <div class="ni" :class="{active:pg==='txacc'}" @click="pg='txacc'"><span class="ic">🧾</span>Tax Accounts</div>
     <div class="ni" :class="{active:pg==='drpt'}" @click="pg='drpt'"><span class="ic">📊</span>Daily Report</div>
     <div class="ni" :class="{active:pg==='taxr'}" @click="pg='taxr'"><span class="ic">🧮</span>Tax Report</div>
     <div class="ni" :class="{active:pg==='taxm'}" @click="pg='taxm'"><span class="ic">📅</span>Monthly Tax</div>
@@ -251,7 +252,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       <template v-if="can('manager')">
       <div class="sc r"><div class="sl">Receivables</div><div class="sv sm cr">{{f(dash.outstanding?.total||0)}}</div><div class="ss">{{dash.outstanding?.count||0}} unpaid</div></div>
       <div class="sc p"><div class="sl">Payables</div><div class="sv sm cp">{{f(dash.outstandingPurchases?.total||0)}}</div></div>
-      <div class="sc o"><div class="sl">Est. VAT Payable</div><div class="sv sm co">{{f(dash.vatPayable||0)}}</div><div class="ss">This month</div></div>
+      <div class="sc o"><div class="sl">Est. VAT Payable</div><div class="sv sm co">{{f(dash.vatPayable||0)}}</div><div class="ss">Owed now</div></div>
       </template>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
@@ -1230,7 +1231,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       <tbody>
         <tr v-for="t in allTxRates" :key="t._id">
           <td class="mn ca fw">{{t.code}}</td>
-          <td style="color:var(--txt);font-weight:500">{{t.name}}</td>
+          <td style="color:var(--txt);font-weight:500">{{t.name}} <span v-if="!t.account" class="badge bout" style="font-size:9px" title="Set its Tax account so it posts to the right place">No account set</span></td>
           <td class="mn fw" style="text-align:right">{{t.rate}}%</td>
           <td><span class="badge" :class="t.type==='output'?'bout':t.type==='input'?'bin':'bpend'">{{t.type}}</span></td>
           <td><span class="badge" :class="t.creditable?'bpaid':'bout'" style="font-size:9px">{{t.creditable?'Yes':'No'}}</span></td>
@@ -1638,9 +1639,90 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
     </div>
   </div>
 </template>
+<!-- TAX ACCOUNTS: collected − claimed = what you owe (or are owed), pay / receive refund -->
+<template v-if="pg==='txacc'">
+  <div class="topbar"><h2>🧾 Tax Accounts</h2>
+    <div class="tba">
+      <label style="font-size:12px;color:var(--tx2)">As at</label>
+      <input v-model="txAccTo" type="date" class="fc" style="width:145px" @change="loadTxAccs"/>
+    </div>
+  </div>
+  <div class="content">
+    <div class="card"><div class="tw"><table>
+      <thead><tr><th>Account</th><th>Taxes</th><th style="text-align:right">Collected</th><th style="text-align:right">Claimed</th><th style="text-align:right">Paid / refunded</th><th style="text-align:right">Balance</th><th></th></tr></thead>
+      <tbody>
+        <tr v-for="r in txAccs" :key="r.account">
+          <td style="font-weight:600;color:var(--txt)">{{r.account}}</td>
+          <td style="font-size:12px;color:var(--tx2)">{{r.taxes.join(', ')}}</td>
+          <td class="mn" style="text-align:right">{{f(r.collected)}}</td>
+          <td class="mn" style="text-align:right">{{f(r.claimed)}}</td>
+          <td class="mn" style="text-align:right">{{r.settled?f(r.settled):'—'}}</td>
+          <td style="text-align:right">
+            <div class="mn fw" :style="'color:'+(r.balance>0.004?'var(--red)':r.balance<-0.004?'var(--grn)':'var(--tx2)')">{{txBalLabel(r.balance)}}<span v-if="Math.abs(r.balance)>0.004"> {{f(Math.abs(r.balance))}}</span></div>
+            <div style="font-size:11px;color:var(--tx3)">Collected {{f(r.collected)}} − Claimed {{f(r.claimed)}}<span v-if="r.opening"> + Opening {{f(r.opening)}}</span><span v-if="r.settled"> − Paid {{f(r.settled)}}</span></div>
+          </td>
+          <td><div class="fx g6" style="justify-content:flex-end">
+            <button v-if="r.balance>0.004" class="btn btn-p btn-sm" @click="openTxPay(r)">Pay</button>
+            <button v-else-if="r.balance<-0.004" class="btn btn-p btn-sm" @click="openTxPay(r)">Receive refund</button>
+            <button class="btn btn-o btn-sm" @click="txAccStatement(r)">Statement</button>
+          </div></td>
+        </tr>
+        <tr v-if="!txAccs.length"><td colspan="7" class="emp"><div class="eic">🧾</div><div>No tax accounts yet. Set a Tax account on each tax in Setup → Tax Rates.</div></td></tr>
+      </tbody>
+    </table></div></div>
+    <div class="card" v-if="txSettles.length" style="margin-top:14px">
+      <div class="ch"><h3>Payments and refunds</h3></div>
+      <div class="tw"><table>
+        <thead><tr><th>Date</th><th>Account</th><th></th><th style="text-align:right">Amount</th><th>From / into</th><th>Reference</th><th></th></tr></thead>
+        <tbody>
+          <tr v-for="s in txSettles" :key="s._id">
+            <td class="mn cm">{{fd(s.date)}}</td>
+            <td>{{s.account}}</td>
+            <td><span class="badge" :class="s.direction==='paid'?'bout':'bpaid'" style="font-size:10px">{{s.direction==='paid'?'Paid':'Refund'}}</span></td>
+            <td class="mn fw" style="text-align:right">{{f(s.amount)}}</td>
+            <td style="font-size:12px">{{s.moneyAccountName}}</td>
+            <td class="mn cm" style="font-size:11px">{{s.reference||'—'}}<span v-if="s.note" style="color:var(--tx3)"> · {{s.note}}</span></td>
+            <td style="text-align:right"><button class="btn btn-o btn-sm" @click="undoTxSettle(s)">Undo</button></td>
+          </tr>
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+</template>
+<!-- Pay tax / receive refund -->
+<div class="mo" v-if="mTxPay" @click.self="mTxPay=false">
+  <div class="md"><div class="mh"><h3>{{eTxPay.balance>0?'Pay tax':'Receive tax refund'}} — {{eTxPay.account}}</h3><button class="xbtn" @click="mTxPay=false">×</button></div>
+    <div class="mb">
+      <div v-if="mErr" class="al al-d">{{mErr}}</div>
+      <div class="al al-i" style="margin-bottom:10px">{{eTxPay.balance>0?'You owe':'Refund due'}}: <strong>{{f(Math.abs(eTxPay.balance))}}</strong></div>
+      <div class="fg">
+        <div class="fr">
+          <div class="fl"><label>Date</label><input v-model="eTxPay.date" type="date" class="fc"/></div>
+          <div class="fl"><label>Amount *</label><input v-model="eTxPay.amount" type="number" step="0.01" min="0" class="fc"/></div>
+        </div>
+        <div class="fr">
+          <div class="fl"><label>{{eTxPay.balance>0?'Pay from':'Received into'}}</label>
+            <select v-model="eTxPay.paymentMode" class="fc"><option value="bank">Bank</option><option value="cash">Cash</option></select>
+          </div>
+          <div class="fl" v-if="eTxPay.paymentMode==='bank'"><label>Bank account *</label>
+            <select v-model="eTxPay.bankAccount" class="fc"><option value="">— Select —</option><option v-for="a in baccs" :key="a._id" :value="a._id">{{a.name}} ({{f(a.currentBalance)}})</option></select>
+          </div>
+          <div class="fl" v-else><label>Cash account *</label>
+            <select v-model="eTxPay.cashAccount" class="fc"><option value="">— Select —</option><option v-for="a in cas" :key="a._id" :value="a._id">{{a.name}} ({{f(a.currentBalance)}})</option></select>
+          </div>
+        </div>
+        <div class="fr">
+          <div class="fl"><label>Reference</label><input v-model="eTxPay.reference" class="fc" placeholder="e.g. IRD payment no."/></div>
+          <div class="fl"><label>Note</label><input v-model="eTxPay.note" class="fc"/></div>
+        </div>
+      </div>
+    </div>
+    <div class="mf"><button class="btn btn-o" @click="mTxPay=false">Cancel</button><button class="btn btn-p" @click="saveTxPay" :disabled="saving">{{saving?'Saving...':(eTxPay.balance>0?'Pay':'Receive refund')}}</button></div>
+  </div>
+</div>
 <!-- TRIAL BALANCE: entries behind one account -->
 <div class="mo" v-if="mTbDrill" @click.self="mTbDrill=false">
-  <div class="md md-lg"><div class="mh"><h3>{{tbDrill.account}} <span style="font-size:12px;font-weight:400;color:var(--tx3)">as at {{fd(tbTo)}}</span></h3><button class="xbtn" @click="mTbDrill=false">×</button></div>
+  <div class="md md-lg"><div class="mh"><h3>{{tbDrill.account}} <span style="font-size:12px;font-weight:400;color:var(--tx3)">as at {{fd(tbDrill.to||tbTo)}}</span></h3><button class="xbtn" @click="mTbDrill=false">×</button></div>
     <div class="mb"><div class="tw" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
       <thead><tr><th style="padding:6px 9px;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd);text-align:left">Date</th><th style="padding:6px 9px;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd);text-align:left">Description</th><th style="padding:6px 9px;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd);text-align:left">Ref</th><th style="padding:6px 9px;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd);text-align:right">Debit</th><th style="padding:6px 9px;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd);text-align:right">Credit</th><th style="padding:6px 9px;font-size:9px;text-transform:uppercase;color:var(--tx3);border-bottom:1px solid var(--brd);text-align:right">Balance</th></tr></thead>
       <tbody>
@@ -2231,6 +2313,24 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
             </div>
           </div>
         </div>
+        <div class="fr">
+          <div class="fl"><label>Tax account *</label>
+            <select v-model="eTxRate.account" class="fc" @change="txAccPick('account')">
+              <option value="__new">+ Create new account…</option>
+              <option value="">— Select —</option>
+              <option v-for="a in ledgerAccs.filter(a=>a.active!==false)" :key="a._id" :value="a.name">{{a.name}} ({{a.type}})</option>
+            </select>
+            <div style="font-size:11px;color:var(--tx3);margin-top:4px">Where this tax is collected and paid. VAT: choose one liability account; input and output both use it so the balance is what you owe.</div>
+          </div>
+          <div class="fl"><label>Cost account<span v-if="eTxRate.creditable===true||eTxRate.businessTax===true"> *</span></label>
+            <select v-model="eTxRate.costAccount" class="fc" @change="txAccPick('costAccount')">
+              <option value="__new">+ Create new account…</option>
+              <option value="">{{eTxRate.creditable===true||eTxRate.businessTax===true?'— Select —':'Same as tax account'}}</option>
+              <option v-for="a in ledgerAccs.filter(a=>a.active!==false)" :key="a._id" :value="a.name">{{a.name}} ({{a.type}})</option>
+            </select>
+            <div style="font-size:11px;color:var(--tx3);margin-top:4px">Where this tax goes when you can't claim it back. It becomes part of the cost.</div>
+          </div>
+        </div>
         <div class="fl"><label>Description</label><textarea v-model="eTxRate.description" class="fc" rows="2" placeholder="e.g. Standard VAT — creditable"></textarea></div>
         <!-- reducedBy: which taxes to subtract from base before calculating this tax -->
         <div class="fl">
@@ -2252,6 +2352,20 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       </div>
     </div>
     <div class="mf"><button class="btn btn-o" @click="mTxRate=false">Cancel</button><button class="btn btn-p" @click="saveTxRate" :disabled="saving">{{saving?'Saving...':'Save Tax Rate'}}</button></div>
+  </div>
+</div>
+<div class="mo" v-if="mNewAcc" @click.self="mNewAcc=false" style="z-index:1100">
+  <div class="md" style="max-width:380px"><div class="mh"><h3>New account</h3><button class="xbtn" @click="mNewAcc=false">×</button></div>
+    <div class="mb">
+      <div v-if="newAccErr" class="al al-d">{{newAccErr}}</div>
+      <div class="fg">
+        <div class="fl"><label>Name *</label><input v-model="eNewAcc.name" class="fc" placeholder="e.g. VAT Control"/></div>
+        <div class="fl"><label>Type</label>
+          <select v-model="eNewAcc.type" class="fc"><option value="liability">Liability</option><option value="asset">Asset</option><option value="expense">Expense</option></select>
+        </div>
+      </div>
+    </div>
+    <div class="mf"><button class="btn btn-o" @click="mNewAcc=false">Cancel</button><button class="btn btn-p" @click="saveNewAcc">Create</button></div>
   </div>
 </div>
 

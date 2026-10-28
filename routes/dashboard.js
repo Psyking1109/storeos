@@ -5,6 +5,8 @@ const Product     = require('../models/Product');
 const CashAccount = require('../models/CashAccount');
 const BankAccount = require('../models/BankAccount');
 const Cheque      = require('../models/Cheque');
+const TaxRate     = require('../models/TaxRate');
+const taxRoutes   = require('./tax');
 const { requireAuth } = require('../middleware/auth');
 
 router.get('/', requireAuth, async (req, res) => {
@@ -35,10 +37,9 @@ router.get('/', requireAuth, async (req, res) => {
     const soon = new Date(today); soon.setDate(soon.getDate() + 7);
     const pendingCheques = await Cheque.find({ dueDate: { $gte: today, $lte: soon }, status: { $in: ['pending','deposited'] } }).sort({ dueDate: 1 });
 
-    // Estimated VAT payable (this month)
-    const vatInv = await Invoice.aggregate([{ $match: { type: 'invoice', date: { $gte: monthStart }, status: { $ne: 'draft' } } },{ $group: { _id: null, outputVAT: { $sum: '$vatAmount' } } }]);
-    const vatPur = await Purchase.aggregate([{ $match: { date: { $gte: monthStart }, status: { $ne: 'draft' } } },{ $group: { _id: null, inputVAT: { $sum: '$vatInputAmount' } } }]);
-    const vatPayable = (vatInv[0]?.outputVAT||0) - (vatPur[0]?.inputVAT||0);
+    // Tax owed now: balance of the tax accounts of creditable taxes (same figure as Tax Accounts)
+    const creditableAccs = new Set((await TaxRate.find({ active: true, creditable: true }).lean()).map(t => t.account).filter(Boolean));
+    const vatPayable = (await taxRoutes.taxAccountSummary()).filter(r => creditableAccs.has(r.account)).reduce((s, r) => s + r.balance, 0);
 
     res.json({
       today: {

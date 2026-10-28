@@ -498,11 +498,12 @@ async function openLedgerSource(x){
   }catch(e){alert(e.message);}
   return false;
 }
-async function openTbAccount(r){
+async function openTbAccount(r,to){
   try{
-    const rows=await api('GET','/ledger/account?account='+encodeURIComponent(r.account)+(tbTo.value?'&to='+tbTo.value:''));
+    const asAt=to===undefined?tbTo.value:to;
+    const rows=await api('GET','/ledger/account?account='+encodeURIComponent(r.account)+(asAt?'&to='+asAt:''));
     const opening=r.opening||0;
-    tbDrill.value={account:r.account,type:r.type,opening,rows:rows.map(e=>({...e,runningBalance:e.runningBalance+opening}))};
+    tbDrill.value={account:r.account,type:r.type,opening,to:asAt,rows:rows.map(e=>({...e,runningBalance:e.runningBalance+opening}))};
     mTbDrill.value=true;
   }catch(e){alert(e.message);}
 }
@@ -888,7 +889,8 @@ watch(pg,async p=>{
   if(p==='drpt')loadRpt();
   if(p==='taxr')loadTaxRpt();
   if(p==='taxm')loadTaxMonthly();
-  if(p==='txrt')loadAllTxRates();
+  if(p==='txrt'){loadAllTxRates();loadLedgerAccs();}
+  if(p==='txacc')loadTxAccs();
   if(p==='invt'){loadInvTypes();loadIrdSettings();}
   if(p==='loc'){loadLocs();loadProds();}
   if(p==='usr')loadUsers();
@@ -1171,9 +1173,46 @@ async function saveChq(){if(!eChq.value.chequeNo||!eChq.value.dueDate){mErr.valu
 function qChqSts(chq,sts,ev){if(!sts)return;ev.target.value='';if(sts==='endorse'){openEndorse(chq);return;}if(sts==='end-undo'||sts==='end-bounced'){reverseEndorse(chq,sts==='end-undo'?'undo':'bounced');return;}if((sts==='bounced'||sts==='cancelled')&&!confirm('Mark cheque #'+chq.chequeNo+' as '+sts+'? This posts a reversing entry.'))return;if(sts==='deposited'||sts==='cleared'){chqStsData.value={cheque:chq,status:sts,accountId:chq.account||'',depositedDate:today,clearedDate:today};mChqSts.value=true;}else{api('PATCH','/cheques/'+chq._id+'/status',{status:sts}).then(()=>loadChqs()).catch(e=>alert(e.message));}}
 async function saveChqSts(){saving.value=true;const{cheque,status,accountId,depositedDate,clearedDate}=chqStsData.value;try{await api('PATCH','/cheques/'+cheque._id+'/status',{status,accountId,depositedDate,clearedDate});mChqSts.value=false;loadChqs();loadBaccs();}catch(e){alert(e.message);}saving.value=false;}
 async function delChq(id){if(!confirm('Delete cheque?'))return;try{await api('DELETE','/cheques/'+id);loadChqs();}catch(e){alert(e.message);}}
-function openTxRate(t){eTxRate.value=t?{...t,reducedBy:[...(t.reducedBy||[])],businessTax:t.businessTax||false}:{code:'',name:'',rate:0,type:'both',appliesTo:'all',creditable:false,reducedBy:[],businessTax:false,description:''};mErr.value='';loadAllTxRates();mTxRate.value=true;}
+function openTxRate(t){eTxRate.value=t?{...t,reducedBy:[...(t.reducedBy||[])],businessTax:t.businessTax||false}:{code:'',name:'',rate:0,type:'both',appliesTo:'all',creditable:false,reducedBy:[],businessTax:false,description:'',account:'',costAccount:''};mErr.value='';loadAllTxRates();loadLedgerAccs();mTxRate.value=true;}
 async function saveTxRate(){if(!eTxRate.value.code||!eTxRate.value.name){mErr.value='Code and name required';return;}saving.value=true;mErr.value='';try{if(eTxRate.value._id)await api('PUT','/tax/'+eTxRate.value._id,eTxRate.value);else{eTxRate.value.code=eTxRate.value.code.toUpperCase().trim();await api('POST','/tax',eTxRate.value);}mTxRate.value=false;loadAllTxRates();loadTxRates();}catch(e){mErr.value=e.message;}saving.value=false;}
 async function disableTxRate(id){if(!confirm('Disable this tax rate?'))return;try{await api('DELETE','/tax/'+id);loadAllTxRates();loadTxRates();}catch(e){alert(e.message);}}
+// Tax Rates: the accounts a tax posts to. "+ Create new account…" opens a small modal.
+const mNewAcc=ref(false);const eNewAcc=ref({});const newAccErr=ref('');
+function txAccPick(field){
+  if(eTxRate.value[field]!=='__new')return;
+  eTxRate.value[field]='';const t=eTxRate.value;
+  const liab=field==='account'&&(t.creditable===true||t.type==='output'||t.type==='both');
+  eNewAcc.value={field,name:'',type:liab?'liability':'expense'};newAccErr.value='';mNewAcc.value=true;
+}
+async function saveNewAcc(){
+  const a=eNewAcc.value;if(!a.name.trim()){newAccErr.value='Enter a name';return;}
+  try{await api('POST','/ledger-accounts',{name:a.name.trim(),type:a.type});await loadLedgerAccs();eTxRate.value[a.field]=a.name.trim();mNewAcc.value=false;}
+  catch(e){newAccErr.value=e.message;}
+}
+// ── TAX ACCOUNTS: what you owe / are owed per tax account, pay or receive a refund ──
+const txAccs=ref([]);const txAccTo=ref(today);const txSettles=ref([]);const mTxPay=ref(false);const eTxPay=ref({});
+async function loadTxAccs(){
+  try{const r=await Promise.all([api('GET','/tax/accounts'+(txAccTo.value?'?to='+txAccTo.value:'')),api('GET','/tax/settlements')]);txAccs.value=r[0];txSettles.value=r[1];}
+  catch(e){alert(e.message);}
+}
+const txBalLabel=b=>b>0.004?'You owe':b<-0.004?'Refund due':'Settled';
+async function openTxPay(r){
+  try{
+    const now=(await api('GET','/tax/accounts')).find(x=>x.account===r.account)||r;   // pay against today's balance
+    eTxPay.value={account:r.account,balance:now.balance,date:today,amount:Math.round(Math.abs(now.balance)*100)/100,paymentMode:'bank',cashAccount:'',bankAccount:'',reference:'',note:''};
+    mErr.value='';loadCas();loadBaccs();mTxPay.value=true;
+  }catch(e){alert(e.message);}
+}
+async function saveTxPay(){
+  const p=eTxPay.value;saving.value=true;mErr.value='';
+  try{await api('POST','/tax/settle',{...p,amount:n(p.amount)});mTxPay.value=false;loadTxAccs();}catch(e){mErr.value=e.message;}
+  saving.value=false;
+}
+async function undoTxSettle(s){
+  if(!confirm('Undo this '+(s.direction==='paid'?'payment':'refund')+' of '+f(s.amount)+'?'))return;
+  try{await api('DELETE','/tax/settle/'+s._id);loadTxAccs();}catch(e){alert(e.message);}
+}
+function txAccStatement(r){openTbAccount({account:r.account,type:r.type,opening:-r.opening},txAccTo.value);}
 function openInvType(t){eInvType.value=t?{...t}:{name:'',prefix:'',resetCycle:'daily',padLength:4,notes:'',useIrdNumbering:true};mErr.value='';loadIrdSettings();mInvType.value=true;}
 async function saveInvType(){if(!eInvType.value.name||!eInvType.value.prefix){mErr.value='Name and prefix required';return;}saving.value=true;mErr.value='';try{if(eInvType.value._id)await api('PUT','/invoice-types/'+eInvType.value._id,eInvType.value);else await api('POST','/invoice-types',eInvType.value);mInvType.value=false;loadInvTypes();}catch(e){mErr.value=e.message;}saving.value=false;}
 async function delInvType(id){if(!confirm('Delete?'))return;try{await api('DELETE','/invoice-types/'+id);loadInvTypes();}catch(e){alert(e.message);}}
@@ -1656,7 +1695,8 @@ openCust,saveCust,openSupp,saveSupp,viewSuppHist,
 openCA,saveCA,openXfer,saveXfer,openExp,saveExp,delExp,openPay,savePay,
 openBAcc,saveBAcc,openBTx,saveBTx,delBTx,viewStmt,loadStmt,loadBTxs,mStockMovement,stockMovementData,viewStockMovement,mPODetail,poDet,newStage,openPODetail,savePayStage,delPayStage,toggleGoodsReceived,finalizePO,savePONotes,poPayOpen,poOrderedQty,poReceivedQty,poPaidPct,mReceive,recvLines,recvDate,recvNote,openReceive,saveReceive,delReceipt,mExtraCost,eCost,openExtraCost,saveExtraCost,delExtraCost,poTimeline,poFinFilt,poDetSrch,poDetSrchRes,poDetSrchProds,poDetAddItem,poDetAddManualItem,poDetRemoveItem,poDetAddLC,poDetRemoveLC,calcPodet:calcPoDet,savePoDetItems,poDetAddTaxToItem,mInvDetail,invDet,openInvDetail,converting,convertToInvoice,mDelivery,delivering,delItems,delDoc,openDeliveryModal,saveDelivery,mReturn,retInv,retItems,retTotal,retReason,retDate,retRestock,openReturn,calcReturnTotal,saveReturn,
 openChq,saveChq,qChqSts,saveChqSts,delChq,loadProds,loadPOs,loadChqs,n,pickChqParty,mChqEnd,eEnd,endPOs,openEndorse,loadEndPOs,saveEndorse,reverseEndorse,payChqDate,payChqBank,payChqDrawer,
-openTxRate,saveTxRate,disableTxRate,openInvType,saveInvType,delInvType,mTaxDetail,taxDetailData,openTaxDetail,
+openTxRate,saveTxRate,disableTxRate,mNewAcc,eNewAcc,newAccErr,txAccPick,saveNewAcc,
+txAccs,txAccTo,txSettles,mTxPay,eTxPay,loadTxAccs,txBalLabel,openTxPay,saveTxPay,undoTxSettle,txAccStatement,openInvType,saveInvType,delInvType,mTaxDetail,taxDetailData,openTaxDetail,
 openLoc,saveLoc,openUser,saveUser,disableUser,viewCashLedger,loadCashLedger,cashLedgerAcc,cashLedRows,cashLedFr,cashLedTo,selectedCashRow,mEditCashEntry,eCashEntry,editCashEntry,saveCashEntry,delCashEntry,addTaxToInvType,applyInvTypeTaxConfig,toggleInvTypeTax,
 loadLed,loadAccLed,loadTaxRpt,loadTaxMonthly,loadRpt,expandedRptRows,toggleRptRow,loadInvs,loadExps,mCat,eCat,savedCats,pCatFilter,saveCat,delCat,prodsByCategory,mQuickProd,openQuickProd,saveQuickProd,toggleLooseMode,
 commitSummary,loadCommitSummary,proformaQty,undeliveredQty,onOrderQty,availForSale,mCommitDrill,commitDrillTitle,commitDrillRows,commitDrillKind,openCommitDrill,openCommitDrillDoc,

@@ -14,6 +14,11 @@ const taxRateSchema = new mongoose.Schema({
   // It is calculated only for internal tax reporting (IRD returns).
   // Example: SSCL — you pay it, customer doesn't. Invoice stays at 300,000.
   businessTax: { type: Boolean, default: false },
+  // Ledger accounts (names) chosen in Setup → Tax Rates. account: where the tax is collected and
+  // paid (output credits it, claimable input debits it). costAccount: where it goes when it can't
+  // be claimed back (business taxes on sales, non-claimable input tax).
+  account:     { type: String, default: '', trim: true },
+  costAccount: { type: String, default: '', trim: true },
   description: { type: String, default: '' },
   active:      { type: Boolean, default: true }
 }, { timestamps: true });

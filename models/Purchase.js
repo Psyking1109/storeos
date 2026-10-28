@@ -70,7 +70,12 @@ const purchaseSchema = new mongoose.Schema({
   taxAmount:     { type: Number, default: 0 },
   landingCostTotal: { type: Number, default: 0 },
   importTaxTotal:{ type: Number, default: 0 },
-  vatInputAmount:{ type: Number, default: 0 },
+  vatInputAmount:{ type: Number, default: 0 },   // no longer written; older purchases keep their value
+  // Tax per code on this purchase (item taxes and import-tax extra costs). claimable = the tax's
+  // creditable setting when saved: claimable goes to the tax account, otherwise it is a cost.
+  taxTotals:     [{ taxCode: String, taxName: String, amount: Number, claimable: Boolean, _id: false }],
+  // 0 = older purchase (item tax never added to unit cost); 1 = non-claimable item tax is part of unit cost
+  taxVersion:    { type: Number, default: 0 },
   total:         { type: Number, default: 0 },
   paid:          { type: Number, default: 0 },
   balance:       { type: Number, default: 0 },
