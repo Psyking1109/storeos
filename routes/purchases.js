@@ -8,7 +8,9 @@ const Ledger = require('../models/Ledger');
 const CashAccount = require('../models/CashAccount');
 const BankAccount = require('../models/BankAccount');
 const Cheque = require('../models/Cheque');
-const { loadTaxMap, purchaseTaxRow } = require('../utils/taxAccounts');
+const Settings = require('../models/Settings');
+const LedgerAccount = require('../models/LedgerAccount');
+const { loadTaxMap, purchaseTaxRow, ROW_TYPE } = require('../utils/taxAccounts');
 
 // Every supplier payment is a payment stage: Dr Accounts Payable, Cr the actual cash/bank account
 // (or Cheques Payable for a cheque we write, which hits the bank when it clears).
@@ -67,14 +69,72 @@ async function nextPurchaseNo() {
   return `PO-${String(num).padStart(4, '0')}`;
 }
 
+// Spread the product-cost part of each extra cost over the lines, by the row's method:
+// value (line value), qty (quantity) or equal (same per line). Older rows spread their whole amount.
 function distributeLanding(items, landingCosts) {
-  const total = landingCosts.reduce((s, lc) => s + (lc.amount || 0), 0);
-  if (!total || !items.length) return items.map(i => ({ ...i, landingCostShare: 0, finalUnitCost: i.unitCost }));
-  const totalVal = items.reduce((s, i) => s + (i.lineTotal || 0), 0);
-  return items.map(item => {
-    const share = totalVal ? (item.lineTotal / totalVal) * total : total / items.length;
-    return { ...item, landingCostShare: share, finalUnitCost: (item.unitCost || 0) + (item.qty ? share / item.qty : 0) };
-  });
+  const shares = items.map(() => 0);
+  for (const lc of landingCosts) {
+    const amt = lc.kind ? (lc.landedAmount || 0) : (lc.amount || 0);
+    if (!amt || !items.length) continue;
+    let w = lc.method === 'qty' ? items.map(i => i.qty || 0) : lc.method === 'equal' ? items.map(() => 1) : items.map(i => i.lineTotal || 0);
+    let tw = w.reduce((s, x) => s + x, 0);
+    if (!tw) { w = items.map(() => 1); tw = items.length; }
+    w.forEach((x, k) => { shares[k] += amt * x / tw; });
+  }
+  return items.map((item, k) => ({ ...item, landingCostShare: shares[k], finalUnitCost: (item.unitCost || 0) + (item.qty ? shares[k] / item.qty : 0) }));
+}
+
+// Everything computePurchase / buildPurchaseLedger look up: tax accounts, the default extra-cost
+// account (Settings) and the Chart of Accounts types.
+async function purchaseContext() {
+  const [taxMap, settings, accs] = await Promise.all([loadTaxMap(), Settings.getSingleton(), LedgerAccount.find({ active: true }).lean()]);
+  return { taxMap, landingAccount: settings.defaultLandingCostAccount || 'Landing Costs',
+    accType: Object.fromEntries(accs.map(a => [a.name, ROW_TYPE[a.type] || 'expense'])) };
+}
+
+const r2 = x => Math.round(x * 100) / 100;
+const asBool = v => v === true || v === 'true';
+const unset = v => v === undefined || v === null || v === '';
+
+// A tax-aware extra-cost row. The server works out every figure from what was entered:
+//   cost, no tax: base = entered | tax included: tax = total × rate / (100 + rate) | tax on top: tax = base × rate / 100
+//   tax paid (duty, import VAT…): base = 0, tax = entered
+// Product-cost part = addToCost ? base + (claimable ? 0 : tax) : 0 — claimable tax never enters cost.
+function extraCostRow(lc, ctx, exRate) {
+  const what = lc.description || 'Extra cost';
+  if (!['cost', 'tax'].includes(lc.kind)) throw new Error(`${what}: unknown extra cost type`);
+  if (lc.currency && lc.currency !== 'LKR' && lc.amountForeign) lc.entered = lc.amountForeign * exRate;
+  const entered = r2(Number(lc.entered) || 0);
+  if (!(entered > 0)) throw new Error(`${what}: enter an amount more than 0`);
+  lc.entered = entered;
+  if (lc.kind === 'tax') lc.taxMode = 'none';
+  const mode = lc.kind === 'tax' ? 'tax' : (lc.taxMode || 'none');
+  if (!['none', 'included', 'added', 'tax'].includes(mode)) throw new Error(`${what}: unknown tax option`);
+  let tax = null;
+  if (mode !== 'none') {
+    tax = ctx.taxMap[lc.taxCode];
+    if (!tax) throw new Error(`${what}: choose a tax from Tax Rates${lc.taxCode ? ` ("${lc.taxCode}" is not an active tax)` : ''}`);
+  } else lc.taxCode = '';
+  let rate = 0;
+  if (mode === 'included' || mode === 'added') {
+    rate = unset(lc.taxRate) ? tax.rate : Number(lc.taxRate);
+    if (!(rate >= 0)) throw new Error(`${what}: the tax rate must be 0 or more`);
+  }
+  let base, t;
+  if (mode === 'none')          { base = entered; t = 0; }
+  else if (mode === 'included') { t = r2(entered * rate / (100 + rate)); base = r2(entered - t); }
+  else if (mode === 'added')    { base = entered; t = r2(base * rate / 100); }
+  else                          { base = 0; t = entered; }
+  lc.taxRate = (mode === 'included' || mode === 'added') ? rate : undefined;
+  lc.baseAmount = base; lc.taxAmount = t; lc.amount = r2(base + t);
+  lc.claimable = t ? (unset(lc.claimable) ? tax.creditable : asBool(lc.claimable)) : false;
+  lc.addToCost = unset(lc.addToCost) ? (lc.kind === 'cost' ? true : !lc.claimable) : asBool(lc.addToCost);
+  lc.costAccount = lc.kind === 'cost' ? (lc.costAccount || ctx.landingAccount) : '';
+  if (lc.costAccount && lc.costAccount !== ctx.landingAccount && !ctx.accType[lc.costAccount])
+    throw new Error(`${what}: "${lc.costAccount}" is not an active account in the Chart of Accounts`);
+  lc.landedAmount = lc.addToCost ? r2(base + (lc.claimable ? 0 : t)) : 0;
+  lc.isImportTax = false;
+  if (!['value', 'qty', 'equal'].includes(lc.method)) lc.method = 'value';
 }
 
 router.get('/', async (req, res) => {
@@ -102,15 +162,17 @@ router.get('/:id', async (req, res) => {
 // Item loop, item taxes, extra (landing) costs and totals. Mutates `data` exactly as POST / always
 // has; returns the figures buildPurchaseLedger needs. Taxes are gathered per code into
 // data.taxTotals; whether each is claimable comes from Setup → Tax Rates (taxMap).
-function computePurchase(data, taxMap) {
+function computePurchase(data, ctx) {
+  const taxMap = ctx.taxMap;
   const isImport = data.purchaseType === 'import';
   const exRate = isImport ? (data.exchangeRate || 1) : 1;
   let subForeign = 0, subLKR = 0, totalTax = 0;
   const taxTotals = {};
-  const addTax = (code, name, amt) => {
+  const creditable = code => !!(taxMap[code] && taxMap[code].creditable);
+  const addTax = (code, name, amt, claimable) => {
     if (!amt) return;
-    const k = code || '';
-    if (!taxTotals[k]) taxTotals[k] = { taxCode: k, taxName: name || (taxMap[k] && taxMap[k].name) || k, amount: 0, claimable: !!(taxMap[k] && taxMap[k].creditable) };
+    const c = code || '', k = c + '|' + (claimable ? 1 : 0);
+    if (!taxTotals[k]) taxTotals[k] = { taxCode: c, taxName: name || (taxMap[c] && taxMap[c].name) || c, amount: 0, claimable };
     taxTotals[k].amount += amt;
   };
 
@@ -122,8 +184,8 @@ function computePurchase(data, taxMap) {
     if (!data.taxInclusive && item.taxLines && item.taxLines.length) {
       item.taxLines = item.taxLines.map(tl => {
         const amt = item.lineSubtotal * (tl.rate / 100);
-        addTax(tl.taxCode, tl.taxName, amt);
-        if (!(taxMap[tl.taxCode] && taxMap[tl.taxCode].creditable)) costTax += amt;
+        addTax(tl.taxCode, tl.taxName, amt, creditable(tl.taxCode));
+        if (!creditable(tl.taxCode)) costTax += amt;
         itemTax += amt; return { ...tl, amount: amt };
       });
     }
@@ -132,11 +194,22 @@ function computePurchase(data, taxMap) {
     totalTax += itemTax; subLKR += item.lineSubtotal;
   }
 
-  let landingTotal = 0, importTaxTotal = 0;
+  let landingTotal = 0, landedTotal = 0;
+  const costByAccount = {};   // cost part (base) of extra costs, per account
+  const addCost = (acc, amt) => { if (amt) costByAccount[acc] = (costByAccount[acc] || 0) + amt; };
   for (const lc of (data.landingCosts || [])) {
-    if (lc.currency && lc.currency !== 'LKR' && lc.amountForeign) lc.amount = lc.amountForeign * exRate;
+    if (!lc.kind) {   // older row: unchanged behaviour (whole amount into cost, import taxes by code)
+      if (lc.currency && lc.currency !== 'LKR' && lc.amountForeign) lc.amount = lc.amountForeign * exRate;
+      if (lc.isImportTax) addTax(lc.taxCode, '', lc.amount || 0, creditable(lc.taxCode));
+      else addCost(ctx.landingAccount, lc.amount || 0);
+      lc.landedAmount = lc.amount || 0;
+    } else {
+      extraCostRow(lc, ctx, exRate);
+      addCost(lc.costAccount, lc.baseAmount);
+      addTax(lc.taxCode, '', lc.taxAmount, lc.claimable);
+    }
     landingTotal += lc.amount || 0;
-    if (lc.isImportTax) { importTaxTotal += lc.amount || 0; addTax(lc.taxCode, '', lc.amount || 0); }
+    landedTotal += lc.landedAmount || 0;
   }
 
   data.items = distributeLanding(data.items, data.landingCosts || []);
@@ -147,24 +220,26 @@ function computePurchase(data, taxMap) {
   }
   data.subtotalForeign = subForeign; data.subtotal = subLKR;
   data.taxAmount = totalTax; data.landingCostTotal = landingTotal;
-  data.importTaxTotal = importTaxTotal;
+  data.landedCostTotal = landedTotal;
+  data.importTaxTotal = (data.landingCosts || []).filter(lc => !lc.kind && lc.isImportTax).reduce((s, lc) => s + (lc.amount || 0), 0);
   data.taxTotals = Object.values(taxTotals);
   data.total = subLKR + totalTax + landingTotal;
   data.balance = data.total - (data.paid || 0);
-  return { subLKR, landingTotal, importTaxTotal, taxTotals: data.taxTotals, total: data.total };
+  return { subLKR, costByAccount, taxTotals: data.taxTotals, total: data.total };
 }
 
 // The purchase's own ledger rows (payments are separate rows tagged narration 'stage:<id>').
 // Built before anything is saved so a one-sided entry can never be written.
-function buildPurchaseLedger(po, t, taxMap) {
+function buildPurchaseLedger(po, t, ctx) {
   const base = { date: po.date, reference: po.purchaseNo, sourceType: 'purchase', sourceId: po._id };
   const le = [
     { ...base, account: 'Purchases', accountType: 'purchases', debit: t.subLKR, credit: 0, description: `PO ${po.purchaseNo} — ${po.supplierName}` },
     { ...base, account: 'Accounts Payable', accountType: 'payable', debit: 0, credit: t.total, description: `PO ${po.purchaseNo} — ${po.supplierName}` },
   ];
   for (const tt of t.taxTotals)
-    le.push(purchaseTaxRow(taxMap, tt.taxCode, tt.amount, tt.claimable, { ...base, description: `${tt.taxCode || 'Tax'} on PO ${po.purchaseNo}` }));
-  if (t.landingTotal - t.importTaxTotal > 0) le.push({ ...base, account: 'Landing Costs', accountType: 'expense', debit: t.landingTotal - t.importTaxTotal, credit: 0, description: `Landing costs PO ${po.purchaseNo}` });
+    le.push(purchaseTaxRow(ctx.taxMap, tt.taxCode, tt.amount, tt.claimable, { ...base, description: `${tt.taxCode || 'Tax'} on PO ${po.purchaseNo}` }));
+  for (const [account, amt] of Object.entries(t.costByAccount))
+    le.push({ ...base, account, accountType: ctx.accType[account] || 'expense', debit: amt, credit: 0, description: `Extra costs PO ${po.purchaseNo}` });
   const dr = le.reduce((s, e) => s + e.debit, 0), cr = le.reduce((s, e) => s + e.credit, 0);
   if (Math.abs(dr - cr) > 0.005) throw new Error(`PO ${po.purchaseNo}: entries don't balance (Dr ${dr.toFixed(2)}, Cr ${cr.toFixed(2)}). Nothing was saved.`);
   return le.filter(e => e.debit || e.credit);
@@ -184,13 +259,13 @@ router.post('/', async (req, res) => {
     if (!data.purchaseNo) data.purchaseNo = await nextPurchaseNo();
     for (const item of data.items) item.receivedQty = 0;
     data.taxVersion = 1;
-    const taxMap = await loadTaxMap();
-    const totals = computePurchase(data, taxMap);
+    const ctx = await purchaseContext();
+    const totals = computePurchase(data, ctx);
     // Stock no longer moves here: it moves when goods are received (POST /:id/receipts)
     data.receiptMode = 'staged';
 
     const purchase = new Purchase(data);
-    const rows = buildPurchaseLedger(purchase, totals, taxMap);
+    const rows = buildPurchaseLedger(purchase, totals, ctx);
     await purchase.save();
 
     if (data.supplier && data.balance > 0) await Supplier.findByIdAndUpdate(data.supplier, { $inc: { balance: data.balance } });
@@ -374,11 +449,11 @@ router.put('/:id', async (req, res) => {
     }
 
     const data = { purchaseType: po.purchaseType, exchangeRate: po.exchangeRate, taxInclusive: po.taxInclusive, taxVersion: po.taxVersion || 0, paid: po.paid, items, landingCosts: costs };
-    const taxMap = await loadTaxMap();
-    const totals = computePurchase(data, taxMap);
-    const rows = buildPurchaseLedger(po, totals, taxMap);
+    const ctx = await purchaseContext();
+    const totals = computePurchase(data, ctx);
+    const rows = buildPurchaseLedger(po, totals, ctx);
     const oldTotal = po.total || 0;
-    for (const k of ['items', 'landingCosts', 'subtotal', 'subtotalForeign', 'taxAmount', 'landingCostTotal', 'importTaxTotal', 'taxTotals', 'total']) po[k] = data[k];
+    for (const k of ['items', 'landingCosts', 'subtotal', 'subtotalForeign', 'taxAmount', 'landingCostTotal', 'landedCostTotal', 'importTaxTotal', 'taxTotals', 'total']) po[k] = data[k];
     po.landingTaxTotal = 0; // extra-cost taxes are not supported on the server
     await po.save();
 

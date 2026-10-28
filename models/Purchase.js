@@ -29,7 +29,19 @@ const landingCostSchema = new mongoose.Schema({
   taxCode:     { type: String, default: '' },
   isImportTax: { type: Boolean, default: false },
   method:      { type: String, enum: ['value','qty','equal'], default: 'value' },
-  date:        { type: Date, default: Date.now }
+  date:        { type: Date, default: Date.now },
+  // Tax-aware rows (rows without `kind` are older rows: whole amount spread into cost, no tax split).
+  // The server works out baseAmount / taxAmount / amount from what was entered.
+  kind:        { type: String, enum: ['cost','tax'] },        // a cost (freight…) or a tax paid (duty, import VAT…)
+  taxMode:     { type: String, enum: ['none','included','added'], default: 'none' },  // cost rows only
+  entered:     { type: Number },                              // what the user typed (LKR)
+  taxRate:     { type: Number },
+  taxAmount:   { type: Number, default: 0 },
+  baseAmount:  { type: Number, default: 0 },
+  claimable:   { type: Boolean },
+  addToCost:   { type: Boolean },
+  costAccount: { type: String, default: '' },                 // where the cost part (base) is posted
+  landedAmount:{ type: Number, default: 0 },                  // the part that goes into product cost
 }, { _id: false });
 
 // Payment stage — each payment made at different times
@@ -68,7 +80,8 @@ const purchaseSchema = new mongoose.Schema({
   subtotalForeign: { type: Number, default: 0 },
   subtotal:      { type: Number, default: 0 },
   taxAmount:     { type: Number, default: 0 },
-  landingCostTotal: { type: Number, default: 0 },
+  landingCostTotal: { type: Number, default: 0 },   // sum of extra-cost amounts (what they add to the total)
+  landedCostTotal:  { type: Number, default: 0 },   // the part of extra costs that goes into product cost
   importTaxTotal:{ type: Number, default: 0 },
   vatInputAmount:{ type: Number, default: 0 },   // no longer written; older purchases keep their value
   // Tax per code on this purchase (item taxes and import-tax extra costs). claimable = the tax's

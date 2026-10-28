@@ -1466,6 +1466,10 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       <div class="fr"><div class="fl"><label>Fax</label><input v-model="coSettings.fax" class="fc" placeholder="+94 11 234 5679"/></div><div class="fl"><label>Email</label><input v-model="coSettings.email" class="fc" placeholder="info@company.lk"/></div></div>
       <div class="fl"><label>Address</label><textarea v-model="coSettings.address" class="fc" rows="2" placeholder="123 Main Street, Colombo 03, Sri Lanka"></textarea></div>
       <div class="fr"><div class="fl"><label>Website</label><input v-model="coSettings.website" class="fc" placeholder="www.company.lk"/></div><div class="fl"><label>Invoice Footer</label><input v-model="coSettings.footer" class="fc" placeholder="Thank you for your business!"/></div></div>
+      <div class="fl"><label>Account for extra costs on purchases</label>
+        <select v-model="coSettings.defaultLandingCostAccount" class="fc"><option v-for="a in ledgerAccs.filter(a=>a.active!==false&&a.type==='expense')" :key="a._id" :value="a.name">{{a.name}}</option><option v-if="coSettings.defaultLandingCostAccount&&!ledgerAccs.some(a=>a.name===coSettings.defaultLandingCostAccount)" :value="coSettings.defaultLandingCostAccount">{{coSettings.defaultLandingCostAccount}}</option></select>
+        <div style="font-size:11px;color:var(--tx3);margin-top:3px">Freight, clearing and similar costs post here unless you choose another account.</div>
+      </div>
       <div class="fl"><label>Logo <span style="font-size:10px;color:var(--tx3)">(max 1 MB image)</span></label>
         <input type="file" accept="image/*" @change="onLogoUpload" class="fc" style="padding:5px"/>
         <div v-if="coSettings.logoData" style="margin-top:6px;display:flex;align-items:center;gap:8px">
@@ -2914,32 +2918,13 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           </tbody>
         </table>
       </div>
-      <!-- Landing Costs -->
+      <!-- Extra costs (freight, clearing, duty, import VAT…) — added through the same modal as on a saved purchase -->
       <div style="margin-top:14px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px"><span style="font-size:13px;font-weight:600;color:var(--tx2)">Landing Costs &amp; Import Taxes</span><button class="btn btn-o btn-sm" @click="nPO.landingCosts.push({description:'',currency:'LKR',amountForeign:0,amount:0,taxCode:'',isImportTax:false})">+ Add</button></div>
-        <div v-if="nPO.purchaseType==='import'" class="al al-i" style="font-size:12px;padding:7px 11px;margin-bottom:7px">Add Freight, PAL, VAT on import, Customs Duty etc. Tick Import Tax for items tracked in tax reports. Select the Tax Code to categorise.</div>
-        <table class="itbl" v-if="nPO.landingCosts.length">
-          <thead><tr><th>Description</th><th>Currency</th><th>Orig. Amt</th><th>LKR Amount</th><th>Taxes on this cost</th><th>Import?</th><th></th></tr></thead>
-          <tbody>
-            <tr v-for="(lc,i) in nPO.landingCosts" :key="i">
-              <td><input v-model="lc.description" class="fc" placeholder="e.g. Freight, PAL, VAT on Import"/></td>
-              <td style="width:80px"><select v-model="lc.currency" @change="if(lc.currency!=='LKR'&&lc.amountForeign){lc.amount=lc.amountForeign*(nPO.exchangeRate||1);}" class="fc"><option value="LKR">LKR</option><option :value="nPO.currency||'USD'">{{nPO.currency||'USD'}}</option></select></td>
-              <td style="width:110px"><input v-model="lc.amountForeign" type="number" step="0.01" class="fc" @input="if(lc.currency!=='LKR'){lc.amount=lc.amountForeign*(nPO.exchangeRate||1);}" placeholder="0" @blur="lc.amountForeign=+lc.amountForeign||0"/></td>
-              <td style="width:110px"><input v-model="lc.amount" type="number" step="0.01" class="fc" @input="calcPO()" @blur="lc.amount=+lc.amount||0" placeholder="LKR"/><div v-if="lc.taxAmount" style="font-size:10px;color:var(--org);font-family:var(--fm);margin-top:2px">+{{f(lc.taxAmount)}} tax = {{f(lc.totalAmount)}}</div></td>
-              <td style="min-width:140px">
-                <div style="display:flex;flex-wrap:wrap;gap:2px;align-items:center">
-                  <span v-for="(tl,ti) in (lc.taxLines||[])" :key="ti" class="txbadge" style="font-size:10px">{{tl.taxCode}} {{tl.rate}}%<span class="rm" @click="lc.taxLines.splice(ti,1)">×</span></span>
-                  <select @change="e=>{addTaxToLC(lc,e.target.value);e.target.value=''}" class="fc" style="width:90px;padding:2px 5px;font-size:11px">
-                    <option value="">+Tax</option>
-                    <option v-for="t in txRates" :key="t.code" :value="t.code">{{t.code}} {{t.rate}}%</option>
-                  </select>
-                </div>
-              </td>
-              <td style="width:80px;text-align:center"><label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;justify-content:center"><input type="checkbox" v-model="lc.isImportTax"/> Yes</label></td>
-              <td style="width:35px"><button class="btn btn-d btn-sm" @click="nPO.landingCosts.splice(i,1)">×</button></td>
-            </tr>
-          </tbody>
-        </table>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px"><span style="font-size:13px;font-weight:600;color:var(--tx2)">Extra costs &amp; taxes paid</span><button class="btn btn-o btn-sm" @click="openExtraCost('new')">+ Extra cost</button></div>
+        <div v-for="(lc,i) in nPO.landingCosts" :key="i" style="display:flex;align-items:center;gap:10px;padding:6px 10px;border:1px solid var(--brd2);border-radius:var(--r);margin-bottom:5px;font-size:13px">
+          <span>{{lc.kind==='tax'?'🧾':'🚚'}}</span><span style="flex:1">{{lcLabel(lc)}}</span>
+          <button class="btn btn-d btn-sm" @click="nPO.landingCosts.splice(i,1);calcPO()">×</button>
+        </div>
       </div>
       <!-- PO Totals + Payment -->
       <div style="display:grid;grid-template-columns:1fr 300px;gap:16px;margin-top:14px">
@@ -3063,7 +3048,7 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
       <div style="display:flex;gap:10px;margin-bottom:12px">
         <button class="btn btn-p" style="flex:1;padding:12px;font-size:14px;font-weight:600" @click="poPayOpen=!poPayOpen" :disabled="(poDet.balance||0)<=0.01">+ Payment</button>
         <button v-if="poDet.receiptMode==='staged'" class="btn btn-g" style="flex:1;padding:12px;font-size:14px;font-weight:600" @click="openReceive" :disabled="poReceivedQty>=poOrderedQty">+ Goods received</button>
-        <button class="btn btn-b" style="flex:1;padding:12px;font-size:14px;font-weight:600" @click="openExtraCost" :disabled="poDet.isFinalized">+ Extra cost</button>
+        <button class="btn btn-b" style="flex:1;padding:12px;font-size:14px;font-weight:600" @click="openExtraCost('det')" :disabled="poDet.isFinalized">+ Extra cost</button>
       </div>
       <div v-if="(poDet.balance||0)<=0.01" class="al al-s" style="margin-bottom:12px">✓ Fully paid</div>
           <div v-if="poPayOpen" style="margin-bottom:12px;background:var(--sur2);border:1px solid var(--brd2);border-radius:var(--r);padding:12px">
@@ -3109,6 +3094,17 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
           <button v-if="ev.undo" class="btn btn-o btn-sm" @click="ev.undo()">{{ev.undoLabel}}</button>
         </div>
         <div v-if="!poTimeline.length" style="padding:12px;color:var(--tx3);font-size:12px">Nothing yet. Use the buttons above as things happen.</div>
+      </div>
+      <!-- Taxes on this purchase -->
+      <div v-if="(poDet.taxTotals||[]).length" style="margin-bottom:14px">
+        <div style="font-size:12px;font-weight:600;color:var(--txt);margin-bottom:7px">Taxes on this purchase</div>
+        <div style="border:1px solid var(--brd2);border-radius:var(--r)">
+          <div v-for="(t,ti) in poDet.taxTotals" :key="ti" style="display:flex;gap:10px;padding:7px 12px;border-bottom:1px solid var(--brd);font-size:13px">
+            <span style="flex:1">{{t.taxName||t.taxCode||'Tax'}}</span>
+            <span style="font-size:11px" :class="t.claimable?'cg':'cm'">{{t.claimable?'Claimable':'Not claimable'}}</span>
+            <span class="mn fw" style="width:110px;text-align:right">{{f(t.amount)}}</span>
+          </div>
+        </div>
       </div>
       <!-- Older purchases only: stock was added when created; this is just a label -->
       <div v-if="poDet.receiptMode!=='staged'" @click="toggleGoodsReceived" style="cursor:pointer;border:1px solid var(--brd2);border-radius:var(--r);padding:8px 12px;margin-bottom:14px;font-size:12px" :class="poDet.goodsReceived?'cg':'cm'">
@@ -3200,19 +3196,60 @@ select.fc{cursor:pointer}textarea.fc{resize:vertical;min-height:60px}
   </div>
 </div>
 
-<!-- EXTRA COST (freight, customs, clearing…) -->
+<!-- EXTRA COST: a cost (freight, clearing…) or a tax paid (duty, import VAT…) -->
 <div class="mo" v-if="mExtraCost" @click.self="mExtraCost=false">
-  <div class="md md-sm"><div class="mh"><h3>Extra cost — {{poDet.purchaseNo}}</h3><button class="xbtn" @click="mExtraCost=false">×</button></div>
+  <div class="md"><div class="mh"><h3>Extra cost — {{eCost.target==='new'?'new purchase':poDet.purchaseNo}}</h3><button class="xbtn" @click="mExtraCost=false">×</button></div>
     <div class="mb">
       <div v-if="mErr" class="al al-d">{{mErr}}</div>
-      <div class="fg">
-        <div class="fl"><label>What for *</label><input v-model="eCost.description" class="fc" list="costSuggest" placeholder="Freight, Customs, Clearing…"/>
-          <datalist id="costSuggest"><option>Freight</option><option>Customs</option><option>Clearing</option><option>Other</option></datalist></div>
-        <div class="fr"><div class="fl"><label>Amount (LKR) *</label><input v-model="eCost.amount" type="number" min="0" step="0.01" class="fc"/></div><div class="fl"><label>Date</label><input v-model="eCost.date" type="date" class="fc"/></div></div>
-        <div style="font-size:11px;color:var(--tx3)">Added to the purchase total, the supplier balance and the cost of each item.</div>
+      <div style="display:flex;gap:10px;margin-bottom:12px">
+        <button class="btn" :class="eCost.kind==='cost'?'btn-p':'btn-o'" style="flex:1;padding:12px;font-size:14px" @click="ecPickKind('cost')">🚚 A cost<div style="font-size:11px;font-weight:400;opacity:.8">freight, clearing, handling…</div></button>
+        <button class="btn" :class="eCost.kind==='tax'?'btn-p':'btn-o'" style="flex:1;padding:12px;font-size:14px" @click="ecPickKind('tax')">🧾 A tax I paid<div style="font-size:11px;font-weight:400;opacity:.8">duty, import VAT…</div></button>
+      </div>
+      <div class="fg" v-if="eCost.kind">
+        <div v-if="eCost.kind==='tax'" class="fl"><label>Tax *</label>
+          <select v-model="eCost.taxCode" class="fc" @change="ecPickTax"><option value="">— Select —</option><option v-for="t in purchaseTaxes" :key="t.code" :value="t.code">{{t.name}} ({{t.code}})</option></select>
+        </div>
+        <div class="fl"><label>{{eCost.kind==='tax'?'Description':'What for'}} *</label><input v-model="eCost.description" class="fc" list="costSuggest" :placeholder="eCost.kind==='tax'?'Customs duty, Import VAT…':'Freight, Clearing, Handling…'"/>
+          <datalist id="costSuggest"><option>Freight</option><option>Clearing</option><option>Handling</option><option>Other</option></datalist></div>
+        <div class="fr">
+          <div class="fl"><label>Amount *</label>
+            <div style="display:flex;gap:6px">
+              <select v-if="ecCurrency" v-model="eCost.currency" class="fc" style="width:80px" @change="ecSetForeign"><option value="LKR">LKR</option><option :value="ecCurrency">{{ecCurrency}}</option></select>
+              <input v-if="eCost.currency!=='LKR'" v-model="eCost.amountForeign" type="number" min="0" step="0.01" class="fc" @input="ecSetForeign"/>
+              <input v-else v-model="eCost.entered" type="number" min="0" step="0.01" class="fc"/>
+            </div>
+            <div v-if="eCost.currency!=='LKR'" style="font-size:11px;color:var(--tx3);margin-top:3px">= LKR {{f(eCost.entered||0)}} at {{ecRate}}</div>
+          </div>
+          <div class="fl"><label>Date</label><input v-model="eCost.date" type="date" class="fc"/></div>
+        </div>
+        <template v-if="eCost.kind==='cost'">
+          <div class="fl"><label>Does this amount include tax?</label>
+            <select v-model="eCost.taxMode" class="fc"><option value="none">No tax</option><option value="included">Includes tax</option><option value="added">Tax is on top</option></select>
+          </div>
+          <div class="fr" v-if="eCost.taxMode!=='none'">
+            <div class="fl"><label>Tax *</label>
+              <select v-model="eCost.taxCode" class="fc" @change="ecPickTax"><option value="">— Select —</option><option v-for="t in purchaseTaxes" :key="t.code" :value="t.code">{{t.name}} ({{t.code}})</option></select>
+            </div>
+            <div class="fl"><label>Rate %</label><input v-model="eCost.taxRate" type="number" min="0" step="0.01" class="fc"/></div>
+          </div>
+          <div v-if="eCost.taxMode!=='none'&&eCost.taxCode" class="al al-i" style="margin:0;font-family:var(--fm);font-size:12px">Cost {{f(ecPrev.base)}} + {{eCost.taxCode}} {{f(ecPrev.tax)}} = {{f(ecPrev.total)}}</div>
+        </template>
+        <div class="fl" v-if="eCost.taxCode&&(eCost.kind==='tax'||eCost.taxMode!=='none')"><label>Can you claim this tax back?</label>
+          <select v-model="eCost.claimable" class="fc" @change="eCost.kind==='tax'&&(eCost.addToCost=!eCost.claimable)"><option :value="true">Yes — it goes to the tax account</option><option :value="false">No — it is part of the cost</option></select>
+        </div>
+        <label v-if="!(eCost.kind==='tax'&&eCost.claimable)" style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" v-model="eCost.addToCost"/> Add to product cost</label>
+        <div class="fr">
+          <div class="fl" v-if="eCost.kind==='cost'"><label>Cost account</label>
+            <select v-model="eCost.costAccount" class="fc"><option v-for="a in ledgerAccs.filter(a=>a.active!==false&&a.type==='expense')" :key="a._id" :value="a.name">{{a.name}}</option><option v-if="!ledgerAccs.some(a=>a.name===eCost.costAccount)" :value="eCost.costAccount">{{eCost.costAccount}}</option></select>
+          </div>
+          <div class="fl" v-if="ecPrev.landed"><label>Share across items by</label>
+            <select v-model="eCost.method" class="fc"><option value="value">Value</option><option value="qty">Quantity</option><option value="equal">Equally per line</option></select>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--tx3)">Added to what you owe on this purchase.<span v-if="ecPrev.landed"> Adds {{f(ecPrev.landed)}} to product cost.</span><span v-else> Doesn't change product cost.</span></div>
       </div>
     </div>
-    <div class="mf"><button class="btn btn-o" @click="mExtraCost=false">Cancel</button><button class="btn btn-p" @click="saveExtraCost" :disabled="saving">{{saving?'Saving…':'Add'}}</button></div>
+    <div class="mf"><button class="btn btn-o" @click="mExtraCost=false">Cancel</button><button class="btn btn-p" @click="saveExtraCost" :disabled="saving||!eCost.kind">{{saving?'Saving…':'Add'}}</button></div>
   </div>
 </div>
 

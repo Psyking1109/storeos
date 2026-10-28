@@ -13,7 +13,7 @@ async function loadTaxMap() {
   const map = {};
   for (const r of rates) {
     const account = r.account || '', costAccount = r.costAccount || r.account || '';
-    map[r.code] = { name: r.name, account, costAccount, creditable: !!r.creditable, businessTax: !!r.businessTax,
+    map[r.code] = { name: r.name, rate: r.rate || 0, account, costAccount, creditable: !!r.creditable, businessTax: !!r.businessTax,
       accountType: typeOf[account] || 'payable', costAccountType: typeOf[costAccount] || 'expense' };
   }
   return map;

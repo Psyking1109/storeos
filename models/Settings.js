@@ -17,6 +17,8 @@ const settingsSchema = new mongoose.Schema({
   website:     { type: String, default: '' },
   footer:      { type: String, default: '' },
   logoData:    { type: String, default: '' }, // base64 data-URI, small logos only
+  // Account an extra cost on a purchase (freight, clearing…) posts to unless the row says otherwise
+  defaultLandingCostAccount: { type: String, default: 'Landing Costs' },
   // ── Invoice Layout Designer settings ──
   invoiceLayout: {
     logoShow:        { type: Boolean, default: true },

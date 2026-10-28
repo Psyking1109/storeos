@@ -1,6 +1,7 @@
 const router   = require('express').Router();
 const Settings = require('../models/Settings');
 const Counter  = require('../models/Counter');
+const LedgerAccount = require('../models/LedgerAccount');
 const { buildIrdNumber } = require('../utils/irdNumbering');
 
 // GET current settings + a live preview of the next invoice number (does not consume a serial)
@@ -49,6 +50,12 @@ router.put('/', async (req, res) => {
       if (req.body[f] !== undefined) update[f] = req.body[f];
     }
     if (req.body.invoiceLayout !== undefined) update.invoiceLayout = req.body.invoiceLayout;
+    if (req.body.defaultLandingCostAccount !== undefined) {
+      const name = String(req.body.defaultLandingCostAccount || '').trim();
+      if (!name || !(await LedgerAccount.exists({ name, active: true })))
+        return res.status(400).json({ error: 'Choose an active account from the Chart of Accounts for extra costs' });
+      update.defaultLandingCostAccount = name;
+    }
 
     const settings = await Settings.findByIdAndUpdate('global', update, { new: true, upsert: true });
 
