@@ -34,8 +34,8 @@ router.put('/', async (req, res) => {
     const touches = keys => keys.some(k => req.body[k] !== undefined);
     if (touches(['irdNumberingEnabled', 'irdBranchCode', 'invoiceLayout']) && !eff.invoiceSettings)
       return res.status(403).json({ error: 'You don\'t have access to Invoice Settings.' });
-    if (touches(COMPANY_FIELDS) && req.user.role !== 'admin')
-      return res.status(403).json({ error: 'Only an admin can change company settings.' });
+    if (touches(COMPANY_FIELDS) && !eff.companySettings)
+      return res.status(403).json({ error: 'You don\'t have access to Company settings.' });
 
     // IRD settings (only touched when explicitly sent)
     if (req.body.irdNumberingEnabled !== undefined || req.body.irdBranchCode !== undefined) {

@@ -13,6 +13,11 @@ const Cheque      = require('../models/Cheque');
 const BankStatementLine = require('../models/BankStatementLine');
 const { buildIrdNumber } = require('../utils/irdNumbering');
 const { loadTaxMap, saleTaxRows } = require('../utils/taxAccounts');
+const { requirePermission } = require('../middleware/auth');
+// Invoices, Proformas and Undelivered each have their own switch (Users screen)
+const listPermission = (req, res, next) => requirePermission(
+  req.query.undelivered === 'true' ? 'undelivered' : req.query.type === 'proforma' ? 'proformas' : 'invoices')(req, res, next);
+const createPermission = (req, res, next) => requirePermission(req.body.type === 'proforma' ? 'proformas' : 'invoices')(req, res, next);
 
 const DOC_PREFIX = { proforma: 'PRO', invoice: 'INV' };
 
@@ -195,7 +200,7 @@ async function restoreStock(item, qty) {
 }
 
 // GET all invoices (optionally filtered by document type: proforma/invoice)
-router.get('/', async (req, res) => {
+router.get('/', listPermission, async (req, res) => {
   try {
     const { status, customer, from, to, type, converted, undelivered } = req.query;
     let q = {};
@@ -232,7 +237,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST create invoice
-router.post('/', async (req, res) => {
+router.post('/', createPermission, async (req, res) => {
   try {
     const data = { ...req.body };
     if (!data.customer    || data.customer===''   ) delete data.customer;
@@ -373,7 +378,7 @@ router.post('/', async (req, res) => {
 // CONVERT — turn a Proforma into a real Invoice, one click,
 // carrying over customer/items/pricing with zero re-entry.
 // ══════════════════════════════════════════════════════════════════
-router.post('/:id/convert', async (req, res) => {
+router.post('/:id/convert', requirePermission('proformas'), requirePermission('invoices'), async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
     const source = await Invoice.findById(req.params.id);
@@ -443,7 +448,7 @@ router.post('/:id/convert', async (req, res) => {
 // creation) that ever reduces Product.stock for an invoice.
 // Body: { deliveries: [{ itemId, qty }], date? }
 // ══════════════════════════════════════════════════════════════════
-router.post('/:id/deliver', async (req, res) => {
+router.post('/:id/deliver', requirePermission('invoices', 'undelivered'), async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
     const invoice = await Invoice.findById(req.params.id);
@@ -509,7 +514,7 @@ router.post('/:id/deliver', async (req, res) => {
 // quantities, and reverses the appropriate share of revenue/receivable.
 // Body: { items: [{ itemId, qty }], reason?, date?, restockItems? }
 // ══════════════════════════════════════════════════════════════════
-router.post('/:id/return', async (req, res) => {
+router.post('/:id/return', requirePermission('invoices'), async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
     const invoice = await Invoice.findById(req.params.id);
@@ -627,7 +632,7 @@ router.post('/:id/return', async (req, res) => {
     res.status(201).json(creditNote);
   } catch(err) { res.status(400).json({ error: err.message }); }
 });
-router.patch('/:id/payment', async (req, res) => {
+router.patch('/:id/payment', requirePermission('invoices'), async (req, res) => {
   try {
     const { amount, paymentMode, cashAccount, bankAccount, chequeNo, date } = req.body;
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
@@ -650,7 +655,7 @@ router.patch('/:id/payment', async (req, res) => {
 });
 
 // DELETE invoice / proforma / credit note
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requirePermission('invoices', 'proformas'), async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
     const inv = await Invoice.findById(req.params.id);

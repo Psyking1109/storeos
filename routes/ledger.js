@@ -64,7 +64,7 @@ router.get('/health', requireAuth, requirePermission('ledger', 'trialBalance'), 
 });
 
 // GET account ledger
-router.get('/account', requireAuth, requirePermission('ledger', 'trialBalance', 'taxReport'), async (req, res) => {
+router.get('/account', requireAuth, requirePermission('ledger', 'trialBalance', 'taxAccounts'), async (req, res) => {
   try {
     const { account, from, to } = req.query;
     if (!account) return res.status(400).json({ error: 'account required' });

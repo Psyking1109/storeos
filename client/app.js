@@ -13,12 +13,12 @@ const pw=ref({cur:'',nw:'',cf:''});const pwErr=ref('');const pwOk=ref('');
 function can(r){const o=['viewer','cashier','manager','admin'];return o.indexOf(me.value?.role)>=o.indexOf(r);}
 // What this user may use — worked out by the server (Users screen switches, or the role's preset)
 function perm(k){return me.value?.role==='admin'||me.value?.effectivePermissions?.[k]===true;}
-// Page → permission it needs (prof is always allowed; Company is admin only)
-const PAGE_PERM={dash:'dashboard',inv:'invoices',pro:'invoices',undel:'invoices',cust:'customers',po:'purchases',sup:'suppliers',
-  stk:'inventory',cat:'inventory',cash:'cashAccounts',exp:'expenses',bank:'banking',recon:'banking',chq:'cheques',led:'ledger',
-  laccs:'chartOfAccounts',tbal:'trialBalance',txacc:'taxReport',drpt:'dailyReport',taxr:'taxReport',taxm:'monthlyTax',
-  invt:'invoiceSettings',loc:'locations',txrt:'taxRates',usr:'userManagement'};
-function canPage(p){if(p==='cosettings')return can('admin');const k=PAGE_PERM[p];return !k||perm(k);}
+// Page → permission it needs (prof — your own profile — is always allowed)
+const PAGE_PERM={dash:'dashboard',inv:'invoices',pro:'proformas',undel:'undelivered',cust:'customers',po:'purchases',sup:'suppliers',
+  stk:'inventory',cat:'categories',cash:'cashAccounts',exp:'expenses',bank:'banking',recon:'banking',chq:'cheques',led:'ledger',
+  laccs:'chartOfAccounts',tbal:'trialBalance',txacc:'taxAccounts',drpt:'dailyReport',taxr:'taxReport',taxm:'monthlyTax',
+  invt:'invoiceSettings',loc:'locations',txrt:'taxRates',usr:'userManagement',cosettings:'companySettings'};
+function canPage(p){const k=PAGE_PERM[p];return !k||perm(k);}
 function firstPage(){return Object.keys(PAGE_PERM).find(canPage)||'prof';}
 async function refreshMe(){try{const u=await api('GET','/auth/me');me.value=u;localStorage.setItem('sos_me',JSON.stringify(u));if(!canPage(pg.value))pg.value=firstPage();}catch(e){}}
 async function login(){
@@ -758,21 +758,21 @@ const mInv=ref(false);const mPO=ref(false);
 const eProd=ref({});const eStk=ref({});const eCust=ref({});const eSupp=ref({});
 const eCA=ref({});const eXfer=ref({});const eExp=ref({});
 const eTxRate=ref({});const eInvType=ref({});const eLoc=ref({});const eUser=ref({});
+// One switch per sidebar item, in sidebar order (labels match the sidebar)
 const PERM_GROUPS=[
   {label:'Main',keys:[['dashboard','Dashboard']]},
-  {label:'Sales',keys:[['invoices','Invoices'],['customers','Customers']]},
+  {label:'Sales',keys:[['invoices','Invoices'],['proformas','Proformas'],['undelivered','Undelivered'],['customers','Customers']]},
   {label:'Purchasing',keys:[['purchases','Purchases'],['suppliers','Suppliers']]},
-  {label:'Stock',keys:[['inventory','Inventory']]},
-  {label:'Accounts',keys:[['cashAccounts','Cash Accounts'],['expenses','Expenses'],['banking','Banking'],['cheques','Cheques'],['ledger','Ledger'],['chartOfAccounts','Chart of Accounts'],['trialBalance','Trial Balance']]},
-  {label:'Reports',keys:[['dailyReport','Daily Report'],['taxReport','Tax Report'],['monthlyTax','Monthly Tax']]},
-  {label:'Setup',keys:[['invoiceSettings','Invoice Settings'],['locations','Locations'],['taxRates','Tax Rates'],['userManagement','User Management']]},
+  {label:'Stock',keys:[['inventory','Inventory'],['categories','Categories']]},
+  {label:'Accounts',keys:[['cashAccounts','Cash Accounts'],['expenses','Expenses'],['banking','Banking'],['cheques','Cheques'],['ledger','Ledger'],['chartOfAccounts','Chart of Accounts'],['trialBalance','Trial Balance'],['taxAccounts','Tax Accounts'],['dailyReport','Daily Report'],['taxReport','Tax Report'],['monthlyTax','Monthly Tax']]},
+  {label:'Setup',keys:[['invoiceSettings','Invoice Settings'],['locations','Locations'],['taxRates','Tax Rates'],['userManagement','Users'],['companySettings','Company']]},
   {label:'Other',keys:[['canDeleteRecords','Can Delete Records'],['canEditPastEntries','Can Edit Past Entries']]}
 ];
 const ROLE_DEFAULTS={
-  admin:{dashboard:true,invoices:true,customers:true,purchases:true,suppliers:true,inventory:true,cashAccounts:true,expenses:true,banking:true,cheques:true,ledger:true,chartOfAccounts:true,trialBalance:true,dailyReport:true,taxReport:true,monthlyTax:true,invoiceSettings:true,locations:true,taxRates:true,userManagement:true,canDeleteRecords:true,canEditPastEntries:true},
-  manager:{dashboard:true,invoices:true,customers:true,purchases:true,suppliers:true,inventory:true,cashAccounts:true,expenses:true,banking:true,cheques:true,ledger:true,chartOfAccounts:true,trialBalance:true,dailyReport:true,taxReport:true,monthlyTax:true,invoiceSettings:false,locations:false,taxRates:false,userManagement:false,canDeleteRecords:false,canEditPastEntries:true},
-  cashier:{dashboard:true,invoices:true,customers:true,purchases:false,suppliers:false,inventory:true,cashAccounts:true,expenses:false,banking:false,cheques:false,ledger:false,chartOfAccounts:false,trialBalance:false,dailyReport:false,taxReport:false,monthlyTax:false,invoiceSettings:false,locations:false,taxRates:false,userManagement:false,canDeleteRecords:false,canEditPastEntries:false},
-  viewer:{dashboard:true,invoices:false,customers:false,purchases:false,suppliers:false,inventory:true,cashAccounts:false,expenses:false,banking:false,cheques:false,ledger:false,chartOfAccounts:false,trialBalance:false,dailyReport:false,taxReport:false,monthlyTax:false,invoiceSettings:false,locations:false,taxRates:false,userManagement:false,canDeleteRecords:false,canEditPastEntries:false}
+  admin:{dashboard:true,invoices:true,proformas:true,undelivered:true,customers:true,purchases:true,suppliers:true,inventory:true,categories:true,cashAccounts:true,expenses:true,banking:true,cheques:true,ledger:true,chartOfAccounts:true,trialBalance:true,dailyReport:true,taxReport:true,taxAccounts:true,monthlyTax:true,invoiceSettings:true,locations:true,taxRates:true,userManagement:true,companySettings:true,canDeleteRecords:true,canEditPastEntries:true},
+  manager:{dashboard:true,invoices:true,proformas:true,undelivered:true,customers:true,purchases:true,suppliers:true,inventory:true,categories:true,cashAccounts:true,expenses:true,banking:true,cheques:true,ledger:true,chartOfAccounts:true,trialBalance:true,dailyReport:true,taxReport:true,taxAccounts:true,monthlyTax:true,invoiceSettings:false,locations:false,taxRates:false,userManagement:false,companySettings:false,canDeleteRecords:false,canEditPastEntries:true},
+  cashier:{dashboard:true,invoices:true,proformas:true,undelivered:true,customers:true,purchases:false,suppliers:false,inventory:true,categories:true,cashAccounts:true,expenses:false,banking:false,cheques:false,ledger:false,chartOfAccounts:false,trialBalance:false,dailyReport:false,taxReport:false,taxAccounts:false,monthlyTax:false,invoiceSettings:false,locations:false,taxRates:false,userManagement:false,companySettings:false,canDeleteRecords:false,canEditPastEntries:false},
+  viewer:{dashboard:true,invoices:false,proformas:false,undelivered:false,customers:false,purchases:false,suppliers:false,inventory:true,categories:true,cashAccounts:false,expenses:false,banking:false,cheques:false,ledger:false,chartOfAccounts:false,trialBalance:false,dailyReport:false,taxReport:false,taxAccounts:false,monthlyTax:false,invoiceSettings:false,locations:false,taxRates:false,userManagement:false,companySettings:false,canDeleteRecords:false,canEditPastEntries:false}
 };
 function applyRoleDefaults(){eUser.value.permissions={...(ROLE_DEFAULTS[eUser.value.role]||ROLE_DEFAULTS.cashier)};}
 const eBAcc=ref({});const eBTx=ref({});const eChq=ref({});const chqStsData=ref({});

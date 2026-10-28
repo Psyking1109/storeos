@@ -69,7 +69,7 @@ app.use('/api/auth', require('./routes/auth'));
 
 // API Routes — shared lists (other screens need them) are readable by anyone signed in;
 // changing them needs the matching permission from Users. Finer checks live in the route files.
-app.use('/api/categories',     requireAuth, permissionForChanges('inventory'), require('./routes/categories'));
+app.use('/api/categories',     requireAuth, permissionForChanges('categories'), require('./routes/categories'));
 app.use('/api/products',       requireAuth, require('./routes/products'));
 app.use('/api/customers',      requireAuth, permissionForChanges('customers'), require('./routes/customers'));
 app.use('/api/tax',            requireAuth, require('./routes/tax'));
@@ -81,7 +81,7 @@ app.use('/api/dashboard',      requireAuth, requirePermission('dashboard'), requ
 app.use('/api/settings',       requireAuth, require('./routes/settings'));
 
 // Permission-gated routes
-app.use('/api/invoices',        requireAuth, requirePermission('invoices'),       require('./routes/invoices'));
+app.use('/api/invoices',        requireAuth, requirePermission('invoices', 'proformas', 'undelivered'), require('./routes/invoices'));  // finer checks inside
 app.use('/api/expenses',        requireAuth, requirePermission('expenses'),       require('./routes/expenses'));
 app.use('/api/purchases',       requireAuth, requirePermission('purchases'),      require('./routes/purchases'));
 app.use('/api/suppliers',       requireAuth, requirePermission('suppliers'),      require('./routes/suppliers'));

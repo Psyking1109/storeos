@@ -6,32 +6,32 @@ const JWT_SECRET = process.env.JWT_SECRET || 'storeos-secret-change-in-productio
 // Default permissions per role — used as fallback for users with no permissions set
 const ROLE_PRESETS = {
   admin: {
-    dashboard:true,invoices:true,customers:true,purchases:true,suppliers:true,
-    inventory:true,cashAccounts:true,expenses:true,banking:true,cheques:true,
+    dashboard:true,invoices:true,proformas:true,undelivered:true,customers:true,purchases:true,suppliers:true,
+    inventory:true,categories:true,cashAccounts:true,expenses:true,banking:true,cheques:true,
     ledger:true,chartOfAccounts:true,trialBalance:true,dailyReport:true,
-    taxReport:true,monthlyTax:true,invoiceSettings:true,locations:true,
-    taxRates:true,userManagement:true,canDeleteRecords:true,canEditPastEntries:true
+    taxReport:true,taxAccounts:true,monthlyTax:true,invoiceSettings:true,locations:true,
+    taxRates:true,userManagement:true,companySettings:true,canDeleteRecords:true,canEditPastEntries:true
   },
   manager: {
-    dashboard:true,invoices:true,customers:true,purchases:true,suppliers:true,
-    inventory:true,cashAccounts:true,expenses:true,banking:true,cheques:true,
+    dashboard:true,invoices:true,proformas:true,undelivered:true,customers:true,purchases:true,suppliers:true,
+    inventory:true,categories:true,cashAccounts:true,expenses:true,banking:true,cheques:true,
     ledger:true,chartOfAccounts:true,trialBalance:true,dailyReport:true,
-    taxReport:true,monthlyTax:true,invoiceSettings:true,locations:true,
-    taxRates:true,userManagement:false,canDeleteRecords:false,canEditPastEntries:false
+    taxReport:true,taxAccounts:true,monthlyTax:true,invoiceSettings:true,locations:true,
+    taxRates:true,userManagement:false,companySettings:false,canDeleteRecords:false,canEditPastEntries:false
   },
   cashier: {
-    dashboard:true,invoices:true,customers:true,purchases:false,suppliers:false,
-    inventory:true,cashAccounts:true,expenses:true,banking:false,cheques:false,
+    dashboard:true,invoices:true,proformas:true,undelivered:true,customers:true,purchases:false,suppliers:false,
+    inventory:true,categories:true,cashAccounts:true,expenses:true,banking:false,cheques:false,
     ledger:false,chartOfAccounts:false,trialBalance:false,dailyReport:false,
-    taxReport:false,monthlyTax:false,invoiceSettings:false,locations:false,
-    taxRates:false,userManagement:false,canDeleteRecords:false,canEditPastEntries:false
+    taxReport:false,taxAccounts:false,monthlyTax:false,invoiceSettings:false,locations:false,
+    taxRates:false,userManagement:false,companySettings:false,canDeleteRecords:false,canEditPastEntries:false
   },
   viewer: {
-    dashboard:true,invoices:false,customers:false,purchases:false,suppliers:false,
-    inventory:true,cashAccounts:false,expenses:false,banking:false,cheques:false,
+    dashboard:true,invoices:false,proformas:false,undelivered:false,customers:false,purchases:false,suppliers:false,
+    inventory:true,categories:true,cashAccounts:false,expenses:false,banking:false,cheques:false,
     ledger:false,chartOfAccounts:false,trialBalance:false,dailyReport:false,
-    taxReport:false,monthlyTax:false,invoiceSettings:false,locations:false,
-    taxRates:false,userManagement:false,canDeleteRecords:false,canEditPastEntries:false
+    taxReport:false,taxAccounts:false,monthlyTax:false,invoiceSettings:false,locations:false,
+    taxRates:false,userManagement:false,companySettings:false,canDeleteRecords:false,canEditPastEntries:false
   }
 };
 
@@ -74,13 +74,19 @@ function requireRole(...roles) {
 
 // What a user can actually use: admins everything; others their own switches (Users screen),
 // or their role's preset if none were ever set. The screen uses the same object (GET /auth/me).
+// Switches added later start out the same as the switch that used to cover them, so users saved
+// before then keep exactly the access they had (Company used to be admin only).
+const INHERIT = { proformas: 'invoices', undelivered: 'invoices', categories: 'inventory', taxAccounts: 'taxReport' };
 function effectivePermissions(user) {
   if (!user) return {};
   if (user.role === 'admin') return { ...ROLE_PRESETS.admin };
   const perms = user.permissions;
   const own = hasCustomPermissions(perms) ? (perms.toObject ? perms.toObject() : perms) : (ROLE_PRESETS[user.role] || ROLE_PRESETS.viewer);
   const out = {};
-  for (const k of Object.keys(ROLE_PRESETS.admin)) out[k] = own[k] === true;
+  for (const k of Object.keys(ROLE_PRESETS.admin)) {
+    const v = (own[k] === undefined || own[k] === null) && INHERIT[k] ? own[INHERIT[k]] : own[k];
+    out[k] = v === true;
+  }
   return out;
 }
 

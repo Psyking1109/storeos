@@ -337,18 +337,18 @@ async function taxAccountSummary(to) {
   });
 }
 
-router.get('/accounts', requireAuth, requirePermission('taxReport'), async (req, res) => {
+router.get('/accounts', requireAuth, requirePermission('taxAccounts'), async (req, res) => {
   try { res.json(await taxAccountSummary(req.query.to)); }
   catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
-router.get('/settlements', requireAuth, requirePermission('taxReport'), async (req, res) => {
+router.get('/settlements', requireAuth, requirePermission('taxAccounts'), async (req, res) => {
   try { res.json(await TaxSettlement.find().sort({ date: -1, createdAt: -1 }).limit(200)); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // POST pay a tax balance (you owe) or receive a refund (refund due). Partial amounts are fine.
-router.post('/settle', requireAuth, requirePermission('taxReport'), async (req, res) => {
+router.post('/settle', requireAuth, requirePermission('taxAccounts'), async (req, res) => {
   try {
     const { account, paymentMode, cashAccount, bankAccount, reference, note } = req.body;
     const amount = Math.round((Number(req.body.amount) || 0) * 100) / 100;
@@ -397,7 +397,7 @@ router.post('/settle', requireAuth, requirePermission('taxReport'), async (req, 
 });
 
 // DELETE undo a tax payment / refund: money back, cash entry and ledger rows removed
-router.delete('/settle/:id', requireAuth, requirePermission('taxReport'), async (req, res) => {
+router.delete('/settle/:id', requireAuth, requirePermission('taxAccounts'), async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid ID format' });
     const st = await TaxSettlement.findById(req.params.id);
