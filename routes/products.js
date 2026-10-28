@@ -17,7 +17,8 @@ router.get('/', requireAuth, async (req, res) => {
       ];
     }
     if (category) query.category = category;
-    const limit = search ? 12 : 0; // limit search results for speed
+    // Typeahead callers pass ?limit=12; the Inventory page lists every match.
+    const limit = Math.max(0, parseInt(req.query.limit, 10) || 0);
     const q = Product.find(query).sort({ name: 1 });
     if (limit) q.limit(limit);
     res.json(await q);

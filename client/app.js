@@ -796,7 +796,7 @@ const bs=s=>({pending:'bpend',partial:'bpart',paid:'bpaid',overdue:'bover',draft
 const chqSC=s=>({pending:'bpend',deposited:'bpart',cleared:'bpaid',bounced:'bover',cancelled:'bdrft',endorsed:'bpart'}[s]||'bdrft');
 const chqDue=c=>['pending','deposited'].includes(c.status)&&new Date(c.dueDate)<=new Date(Date.now()+3*86400000);
 async function loadDash(){try{dash.value=await api('GET','/dashboard');}catch(e){}}
-async function loadProds(){try{prods.value=await api('GET','/products?search='+psrch.value);loadCommitSummary();}catch(e){}}
+async function loadProds(){try{prods.value=await api('GET','/products?search='+encodeURIComponent(psrch.value||'')+'&category='+encodeURIComponent(pCatFilter.value||''));loadCommitSummary();}catch(e){}}
 async function loadCats(){try{cats.value=await api('GET','/products/meta/categories');}catch(e){}}
 async function loadTxRates(){try{txRates.value=await api('GET','/tax');}catch(e){}}
 async function loadAllTxRates(){try{allTxRates.value=await api('GET','/tax/all');}catch(e){}}
@@ -972,7 +972,7 @@ function srchProds(){
   _srchTimer=setTimeout(async()=>{
     if(!iSrch.value.trim()){iSrchRes.value=[];iSrchLoading.value=false;return;}
     try{
-      iSrchRes.value=await api('GET','/products?search='+encodeURIComponent(iSrch.value.trim()));
+      iSrchRes.value=await api('GET','/products?search='+encodeURIComponent(iSrch.value.trim())+'&limit=12');
     }catch(e){console.error(e);}
     finally{iSrchLoading.value=false;}
   },150);
@@ -1093,7 +1093,7 @@ function calcInv(){try{
 function openNewInv(docType){nInv.value=fInv();if(docType)nInv.value.type=docType;invNoPreview.value='';iSrch.value='';iSrchRes.value=[];mErr.value='';loadCusts();loadTxRates();loadInvTypes();loadCas();loadBaccs();mInv.value=true;}
 async function saveInv(){if(!nInv.value.items.length){mErr.value='Add at least one item';return;}if(nInv.value.type!=='proforma'&&+nInv.value.paid>0){const pe=payAccountErr(nInv.value.paymentMode,nInv.value.cashAccount,nInv.value.bankAccount,nInv.value.chequeNo,'in');if(pe){mErr.value=pe;return;}}saving.value=true;mErr.value='';try{await api('POST','/invoices',nInv.value);mInv.value=false;loadInvs();}catch(e){mErr.value=e.message;}saving.value=false;}
 async function delInv(id){if(!confirm('Delete invoice?'))return;try{await api('DELETE','/invoices/'+id);loadInvs();}catch(e){alert(e.message);}}
-async function srchProdsPO(){if(!poSrch.value.trim()){poSrchRes.value=[];return;}try{poSrchRes.value=(await api('GET','/products?search='+poSrch.value)).slice(0,8);}catch(e){}}
+async function srchProdsPO(){if(!poSrch.value.trim()){poSrchRes.value=[];return;}try{poSrchRes.value=(await api('GET','/products?search='+encodeURIComponent(poSrch.value)+'&limit=12')).slice(0,8);}catch(e){}}
 function addProdToPO(p){const isImp=nPO.value.purchaseType==='import';nPO.value.items.push({product:p._id,productName:p.name,sku:p.sku||'',qty:1,unit:p.unit||'pcs',unitCostForeign:isImp?0:p.costPrice,unitCost:p.costPrice,taxLines:[],taxAmount:0,lineSubtotal:0,lineTotal:0,landingCostShare:0,finalUnitCost:0});poSrch.value='';poSrchRes.value=[];calcPO();}
 function addTaxToLC(lc,code){
   if(!code)return;
@@ -1311,7 +1311,7 @@ async function savePONotes(){
 // ── PO DETAIL EDITING ───────────────────────────────────────────────────────
 async function poDetSrchProds(){
   if(!poDetSrch.value.trim()){poDetSrchRes.value=[];return;}
-  try{poDetSrchRes.value=(await api('GET','/products?search='+poDetSrch.value)).slice(0,8);}catch(e){}
+  try{poDetSrchRes.value=(await api('GET','/products?search='+encodeURIComponent(poDetSrch.value)+'&limit=12')).slice(0,8);}catch(e){}
 }
 function poDetAddItem(p){
   const isImp=poDet.value.purchaseType==='import';
